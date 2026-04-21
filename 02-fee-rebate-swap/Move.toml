@@ -1,0 +1,14 @@
+[package]
+name = "fee_rebate_swap"
+edition = "2024"
+
+# NOTE: At publish time the deploy.sh script copies this package into
+# sandbox/packages/fee_rebate_swap/ and rewrites these paths so they
+# resolve against .external-packages/ the same way example_contract does.
+[dependencies]
+token = { local = "../../.external-packages/token" }
+deepbook = { local = "../../.external-packages/deepbook" }
+
+[environments]
+# Populated by deploy.sh at publish time from sandbox/Pub.localnet.toml.
+localnet = "0000dead"

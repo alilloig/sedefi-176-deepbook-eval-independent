@@ -1,0 +1,17 @@
+{
+    "name": "dca-vault-keeper",
+    "private": true,
+    "type": "module",
+    "version": "0.1.0",
+    "scripts": {
+        "start": "tsx src/keeper.ts"
+    },
+    "dependencies": {
+        "@mysten/sui": "^2.5.1"
+    },
+    "devDependencies": {
+        "tsx": "^4.21.0",
+        "@types/node": "^20.19.37",
+        "typescript": "^5.9.3"
+    }
+}

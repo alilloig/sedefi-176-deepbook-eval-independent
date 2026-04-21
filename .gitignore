@@ -1,0 +1,7 @@
+.idea
+node_modules
+deepbook-sandbox
+_tmp*
+vaults.json
+deployment.json
+publish.json

@@ -1,0 +1,12 @@
+[package]
+name = "dca_vault"
+edition = "2024"
+
+# deploy.sh stages this package inside sandbox/packages/dca_vault/ and rewrites
+# these paths — they're here only so IDEs get their dependency resolution right.
+[dependencies]
+token = { local = "../../../deepbook-sandbox/sandbox/.external-packages/token" }
+deepbook = { local = "../../../deepbook-sandbox/sandbox/.external-packages/deepbook" }
+
+[environments]
+localnet = "0000dead"
