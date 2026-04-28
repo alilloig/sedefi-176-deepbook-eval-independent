@@ -451,8 +451,6 @@ async function main(): Promise<void> {
   const submitter: TriggerSubmitter = {
     signer: {
       sign: async (bytes: Uint8Array) => {
-        const { Signer } = await import('@mysten/sui/cryptography');
-        void Signer; // SDK 2.x: keypair.sign returns base64 sig
         const sig = await keypair.sign(bytes);
         return Buffer.from(sig).toString('base64');
       },

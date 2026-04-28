@@ -27,6 +27,36 @@ interface AppState {
   poolErrors?: string[];
 }
 
+function sentinelCard(pool: PoolDescriptor): PoolCardData {
+  return {
+    poolId: pool.poolId,
+    symbol: pool.symbol,
+    volume24h: undefined,
+    lastPrice: undefined,
+    midPrice: undefined,
+    spread: undefined,
+    depthWithinOnePercent: undefined,
+    sparkline: [],
+  };
+}
+
+// H-4: per-pool failures must not blank the dashboard. Fans out via
+// Promise.allSettled, returns a sentinel card per failed pool, and surfaces
+// rejection messages so T-020's RPC-error actionability check can render them.
+async function fetchAllPools(
+  deps: AppDeps,
+  pools: PoolDescriptor[],
+): Promise<{ cards: PoolCardData[]; poolErrors: string[] }> {
+  const settled = await Promise.allSettled(pools.map((p) => deps.fetchPoolStats(p)));
+  const cards: PoolCardData[] = settled.map((result, i) =>
+    result.status === 'fulfilled' ? result.value : sentinelCard(pools[i]),
+  );
+  const poolErrors: string[] = settled
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason)));
+  return { cards, poolErrors };
+}
+
 export function App({ deps }: { deps: AppDeps }): React.ReactElement {
   const [state, setState] = React.useState<AppState>({
     status: 'loading',
@@ -45,34 +75,7 @@ export function App({ deps }: { deps: AppDeps }): React.ReactElement {
       try {
         const manifest = await deps.loadManifest();
         manifestPoolsRef.current = manifest.pools;
-
-        // H-4: use allSettled so one pool failure does not blank the dashboard.
-        const settled = await Promise.allSettled(
-          manifest.pools.map((p) => deps.fetchPoolStats(p)),
-        );
-
-        const cards: PoolCardData[] = settled.map((result, i) => {
-          if (result.status === 'fulfilled') return result.value;
-          // Return a sentinel card for the failed pool.
-          const pool = manifest.pools[i];
-          return {
-            poolId: pool.poolId,
-            symbol: pool.symbol,
-            volume24h: undefined,
-            lastPrice: undefined,
-            midPrice: undefined,
-            spread: undefined,
-            depthWithinOnePercent: undefined,
-            sparkline: [],
-          };
-        });
-
-        // Collect error messages for any failed per-pool fetch so they can be
-        // surfaced in the UI (satisfies T-020 RPC-error actionability check).
-        const poolErrors: string[] = settled
-          .filter((r) => r.status === 'rejected')
-          .map((r) => (r.status === 'rejected' ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : ''));
-
+        const { cards, poolErrors } = await fetchAllPools(deps, manifest.pools);
         if (!cancelled) setState({ status: 'ready', cards, poolErrors });
       } catch (err) {
         // Manifest load failure — global error UI.
@@ -86,38 +89,14 @@ export function App({ deps }: { deps: AppDeps }): React.ReactElement {
     };
   }, [deps]);
 
-  // H-5: periodic refresh effect. Runs every REFRESH_INTERVAL_MS once initial
-  // load completes, so the sparkline reflects new fills within 30 s.
+  // H-5: periodic refresh so the sparkline reflects new fills within 30 s.
   React.useEffect(() => {
     if (state.status !== 'ready') return;
 
     const intervalId = setInterval(async () => {
       const pools = manifestPoolsRef.current;
       if (pools.length === 0) return;
-
-      const settled = await Promise.allSettled(
-        pools.map((p) => deps.fetchPoolStats(p)),
-      );
-
-      const cards: PoolCardData[] = settled.map((result, i) => {
-        if (result.status === 'fulfilled') return result.value;
-        const pool = pools[i];
-        return {
-          poolId: pool.poolId,
-          symbol: pool.symbol,
-          volume24h: undefined,
-          lastPrice: undefined,
-          midPrice: undefined,
-          spread: undefined,
-          depthWithinOnePercent: undefined,
-          sparkline: [],
-        };
-      });
-
-      const poolErrors: string[] = settled
-        .filter((r) => r.status === 'rejected')
-        .map((r) => (r.status === 'rejected' ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : ''));
-
+      const { cards, poolErrors } = await fetchAllPools(deps, pools);
       setState({ status: 'ready', cards, poolErrors });
     }, REFRESH_INTERVAL_MS);
 

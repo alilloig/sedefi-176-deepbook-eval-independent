@@ -153,68 +153,36 @@ export async function signAndSubmitTrigger(args: SignAndSubmitArgs): Promise<Sig
   tx.setGasPrice(gasPrice);
   tx.setGasBudget(50_000_000n);
 
-  // Build the transaction. The Transaction object uses tx.object() references
-  // which will be resolved against the chain at build time. We provide a minimal
-  // client shim that resolves shared objects via raw fetch to avoid the
-  // 'undefined as never' cast from iter-1.
-  //
-  // Per SDK 2.x: tx.build() accepts an options object with an optional `client`
-  // field. If all object inputs are pre-resolved (via sharedObjectRef), no client
-  // is needed. However, tx.object(id) inputs are NOT pre-resolved — the SDK
-  // needs to fetch their type and version. We use the serialized transaction
-  // approach: serialize to JSON, manually sign the bytes from toJSON().
-  //
-  // Simplest correct approach that avoids SDK client coupling: use tx.serialize()
-  // to get the intent message, then sign those bytes.
-  // However, tx.serialize() requires all inputs to be resolved too.
-  //
-  // Actual fix: build with a thin client that implements only getObjects.
-
-  let txBytes: Uint8Array;
-  try {
-    // Try building directly — works when SDK can resolve from the tx itself.
-    // For shared objects added via tx.object(id), SDK 2.x needs to fetch metadata.
-    // We provide a minimal client that fetches via raw JSON-RPC.
-    const minimalClient = {
-      multiGetObjects: async (ids: string[]) => {
-        const resp = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'sui_multiGetObjects',
-            params: [ids, { showOwner: true, showType: true }],
-          }),
-        });
-        const json = (await resp.json()) as { result?: unknown[] };
-        return (json.result ?? []) as Array<{
-          data?: {
-            objectId?: string;
-            type?: string;
-            owner?: unknown;
-            version?: string;
-            digest?: string;
-          };
-          error?: unknown;
-        }>;
-      },
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    txBytes = await tx.build({ client: minimalClient as any });
-  } catch {
-    // Fallback: if the minimal client approach fails, serialize as JSON
-    // and convert to bytes manually using BCS.
-    // This path handles cases where the SDK's build needs more client methods.
-    const { bcs } = await import('@mysten/sui/bcs');
-    const serialized = tx.serialize();
-    const parsed = JSON.parse(serialized);
-    // Use BCS TransactionData serialization as a fallback.
-    // The serialized form should be usable for signing.
-    txBytes = new Uint8Array(Buffer.from(serialized));
-    void bcs; void parsed;
-    throw new Error('tx.build() failed and fallback not available; ensure shared objects are resolvable');
-  }
+  // tx.object(id) inputs are not pre-resolved, so the SDK needs object metadata
+  // at build time. Provide a minimal client that resolves via raw JSON-RPC,
+  // avoiding the iter-1 'undefined as never' cast hazard.
+  const minimalClient = {
+    multiGetObjects: async (ids: string[]) => {
+      const resp = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'sui_multiGetObjects',
+          params: [ids, { showOwner: true, showType: true }],
+        }),
+      });
+      const json = (await resp.json()) as { result?: unknown[] };
+      return (json.result ?? []) as Array<{
+        data?: {
+          objectId?: string;
+          type?: string;
+          owner?: unknown;
+          version?: string;
+          digest?: string;
+        };
+        error?: unknown;
+      }>;
+    },
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const txBytes = await tx.build({ client: minimalClient as any });
 
   const signature = await signer.sign(txBytes);
   const txBytesB64 = Buffer.from(txBytes).toString('base64');

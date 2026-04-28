@@ -28,17 +28,17 @@ use_environment = "localnet"
 manifest_digest = "EAE83E4C2C7D5B4EF605145EE3703A5AF265593E686986BA5E58EE3F5D5E884F"
 deps = { std = "MoveStdlib", sui = "Sui" }
 
-[pinned.localnet.slippage_swap]
-source = { root = true }
-use_environment = "localnet"
-manifest_digest = "1ABC513833C5696564EC6671A566D52EC30ACEED4D8CEAE8EDFA937E0392899B"
-deps = { deepbook = "deepbook", pyth = "pyth", std = "MoveStdlib", sui = "Sui", token = "token", usdc = "usdc" }
-
 [pinned.localnet.token]
 source = { local = "/Users/alilloig/workspace/deepbook-sandbox/sandbox/.external-packages/token" }
 use_environment = "localnet"
 manifest_digest = "EAE83E4C2C7D5B4EF605145EE3703A5AF265593E686986BA5E58EE3F5D5E884F"
 deps = { std = "MoveStdlib", sui = "Sui" }
+
+[pinned.localnet.tpsl_vault]
+source = { root = true }
+use_environment = "localnet"
+manifest_digest = "1ABC513833C5696564EC6671A566D52EC30ACEED4D8CEAE8EDFA937E0392899B"
+deps = { deepbook = "deepbook", pyth = "pyth", std = "MoveStdlib", sui = "Sui", token = "token", usdc = "usdc" }
 
 [pinned.localnet.usdc]
 source = { local = "/Users/alilloig/workspace/deepbook-sandbox/sandbox/packages/usdc" }

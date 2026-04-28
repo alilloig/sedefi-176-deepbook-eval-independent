@@ -74,6 +74,23 @@ interface RawVaultObject {
   error?: { code: string };
 }
 
+// Move's Option<u64> arrives in two shapes from the SDK depending on call path:
+// `{ Some: "decimal" }` from event parsedJson, `{ fields: { vec: [decimal] } }`
+// from getObject content. Returns null for None/missing/unknown shapes.
+function parseOptionU64(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "object" && "Some" in (raw as object)) {
+    return String((raw as Record<string, unknown>)["Some"]);
+  }
+  if (typeof raw === "object" && "fields" in (raw as object)) {
+    const fields = (raw as { fields: Record<string, unknown> }).fields;
+    const vec = fields["vec"];
+    if (Array.isArray(vec) && vec.length > 0) return String(vec[0]);
+    return null;
+  }
+  return null;
+}
+
 export function useVaultList(): {
   vaults: VaultEntry[];
   refresh: () => void;
@@ -186,20 +203,6 @@ export function useVaultList(): {
             poolMap.get(pj.pool_id.toLowerCase()) ??
             content.type?.match(/<(.+)>/)?.[1] ??
             "";
-
-          const parseOptionU64 = (raw: unknown): string | null => {
-            if (raw === null || raw === undefined) return null;
-            if (typeof raw === "object" && "Some" in (raw as object)) {
-              return String((raw as Record<string, unknown>)["Some"]);
-            }
-            if (typeof raw === "object" && "fields" in (raw as object)) {
-              const fields = (raw as { fields: Record<string, unknown> }).fields;
-              const vec = fields["vec"];
-              if (Array.isArray(vec) && vec.length > 0) return String(vec[0]);
-              return null;
-            }
-            return null;
-          };
 
           return {
             vaultId,

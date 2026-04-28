@@ -50,11 +50,8 @@ export function logKeeperStarted(args: {
   keeper_address: string;
   tpsl_vault_package_id: string;
   poll_interval_ms: number;
-  [key: string]: unknown;
 }): void {
-  // Destructure only the known safe fields; drop any secret keys from args.
-  const { keeper_address, tpsl_vault_package_id, poll_interval_ms } = args;
-  emit('info', 'keeper_started', { keeper_address, tpsl_vault_package_id, poll_interval_ms });
+  emit('info', 'keeper_started', { ...args });
 }
 
 export function logVaultDiscovered(args: {

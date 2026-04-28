@@ -7,14 +7,10 @@
 module tpsl_vault::tpsl_vault;
 
 use deepbook::pool::{Self, Pool};
-use std::option::Option;
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
 use sui::event;
-use sui::object::{Self, ID, UID};
-use sui::transfer;
-use sui::tx_context::TxContext;
 use token::deep::DEEP;
 
 // === Error codes (non-zero per Cycle 2 R3-002) ===

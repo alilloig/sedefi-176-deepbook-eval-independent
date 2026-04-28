@@ -33,13 +33,6 @@ export interface RunDataLayerArgs {
   nowMs: number;
 }
 
-interface JsonRpcEnvelope<T> {
-  jsonrpc: string;
-  id: number;
-  result?: T;
-  error?: { code: number; message: string };
-}
-
 let rpcId = 0;
 
 async function rpc<T>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
@@ -53,7 +46,10 @@ async function rpc<T>(rpcUrl: string, method: string, params: unknown[]): Promis
       params,
     }),
   });
-  const env = (await response.json()) as JsonRpcEnvelope<T>;
+  const env = (await response.json()) as {
+    result?: T;
+    error?: { code: number; message: string };
+  };
   if (env.error) {
     throw new Error(`${method} failed: ${env.error.message}`);
   }
