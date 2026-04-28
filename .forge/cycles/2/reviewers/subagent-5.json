@@ -1,0 +1,72 @@
+[
+  {
+    "id": "R5-001",
+    "severity": "low",
+    "category": "tests-vs-impl",
+    "title": "T-001 success assertion is borderline tautological",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:67-72",
+    "finding": "T-001 calls the wrapper with min_out = 0.5 quote units (constants::float_scaling()/2), then in the next tx asserts `coin::value(&quote_out) >= min_out`. Because the wrapper itself contains the same `>= min_out` assertion, if the wrapper had not aborted in tx-1 the post-condition is mathematically guaranteed in tx-2 — the test cannot fail this assertion in any execution that reaches it. The assertion is therefore not exercising additional logic beyond the wrapper's own assert. The meaningful signal in T-001 is actually `take_from_sender<Coin<USDC>>()` (which proves the transfer side-effect), so the test is not vacuous overall, just the explicit `>= min_out` line is.",
+    "evidence": "tests file line 70: `assert!(coin::value(&quote_out) >= min_out, 0);` — same predicate the wrapper just enforced at line 47 of slippage_swap.move.",
+    "recommendation": "Strengthen by asserting an absolute lower bound that does not echo the wrapper's own check (e.g., `assert!(coin::value(&quote_out) > 0, 0)` and/or `assert!(coin::value(&quote_out) > min_out, 0)` to confirm a strict surplus). Optional, low priority — the take_from_sender already validates the transfer happened."
+  },
+  {
+    "id": "R5-002",
+    "severity": "low",
+    "category": "tests-vs-impl",
+    "title": "T-003 drop leaves boundary `value == min_out` and `>` vs `>=` regression uncovered",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:111-121 (drop comment); sources/slippage_swap.move:47",
+    "finding": "The synthesis notes claim the `value == min_out` boundary is `asymptotic between T-001 and T-002` so a `>` vs `>=` regression would surface in one of those tests. This is incorrect. A regression that flipped the wrapper's `assert!(value >= min_out, ...)` to `assert!(value > min_out, ...)` would silently pass both T-001 (min_out=0.5 quote units, realised likely ~1 base-unit-equivalent, so value strictly > min_out by a wide margin) and T-002 (min_out=1e15, realised << min_out, so abort fires under either operator). The boundary is only reached when realised output equals min_out exactly — neither retained test pins that. Coverage gap is narrow but real; the rationale recorded in tests/comments is misleading.",
+    "evidence": "Tests use min_out = constants::float_scaling()/2 (T-001) and 1_000_000_000_000_000 (T-002). Neither sits at `value == min_out`. The wrapper's gate is `>=`, contract requires `>=`, but no test would catch a flip to `>`.",
+    "recommendation": "Either (a) accept the gap explicitly in the comment (current text overstates coverage), or (b) add a third success-path test where min_out is set to the exact value that DeepBook returned in a prior call. The original T-003 attempt failed only because of test_scenario fixture-reset friction; a single-tx variant that captures realised output via an event or via a two-call PTB-style sequence inside one `begin`/`end` could close the gap."
+  },
+  {
+    "id": "R5-003",
+    "severity": "low",
+    "category": "tests-vs-impl",
+    "title": "T-005 take_from_sender for residual coins does not assert any value invariants",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:197-204",
+    "finding": "T-005 takes `Coin<DEEP>` and `Coin<SUI>` (base residual) from the sender but only validates their existence (take_from_sender aborts if missing) and immediately returns them. No assertion is made on residual values — e.g., `coin::value(&deep_residual) <= DEEP_IN` (residual cannot exceed input) or `coin::value(&base_residual) < base_in_amount()` (some base must have been consumed for a real swap). This is acceptable for the contract's literal AC2.3 wording (`transfer ... back to the sender`) but leaves room for a wrapper bug that swaps which coin goes to which slot to pass undetected, since the type system already disambiguates them.",
+    "evidence": "Lines 197-204: `let deep_residual = test.take_from_sender<Coin<DEEP>>(); test.return_to_sender(deep_residual);` — no value check. Same for base residual.",
+    "recommendation": "Add lightweight sanity bounds: `assert!(coin::value(&deep_residual) <= DEEP_IN, 6);` and `assert!(coin::value(&base_residual) < base_in_amount(), 7);` (the second only if the fixture guarantees a non-zero swap). Optional — the type-level disambiguation already prevents the most likely class of bug."
+  },
+  {
+    "id": "R5-004",
+    "severity": "info",
+    "category": "tests-vs-impl",
+    "title": "T-002 abort-code pinning is correct and wrapper-specific",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:81; sources/slippage_swap.move:43-47",
+    "finding": "The wrapper passes `min_quote_out = 0` to `pool::swap_exact_base_for_quote`, so DeepBook's internal slippage assertion cannot fire under any input — the wrapper's `assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput)` is the sole source of an `EInsufficientOutput`-coded abort. The test annotation `#[expected_failure(abort_code = ::slippage_swap::slippage_swap::EInsufficientOutput)]` is fully qualified to the wrapper's module, so the test framework verifies the abort originated from `slippage_swap::slippage_swap` (not from a same-numbered abort in DeepBook or elsewhere). Pinning is sound; T-002 genuinely exercises the wrapper-side floor.",
+    "evidence": "slippage_swap.move:44 passes literal `0` as DeepBook's min_quote_out. tests:81 uses module-qualified abort_code path.",
+    "recommendation": "No change required. Note this design choice (bypass DeepBook's own check) in the module doc-comment if not already — the wrapper's own comment at lines 26-28 already does so. Good."
+  },
+  {
+    "id": "R5-005",
+    "severity": "info",
+    "category": "tests-vs-impl",
+    "title": "Tests genuinely exercise the wrapper, not pass-through DeepBook calls",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move (all 4 tests)",
+    "finding": "All 4 tests invoke `slippage_swap::swap_exact_base_for_quote` (the wrapper) rather than `deepbook::pool::swap_exact_base_for_quote` directly. The wrapper-specific behaviours under test are: (T-002) the wrapper's own EInsufficientOutput abort code (DeepBook's internal min_quote_out is 0, so DeepBook cannot raise it); (T-005) the three-coin transfer-to-sender side-effect that the wrapper performs after destructuring DeepBook's tuple; (T-005) absence of any BalanceManager owned by sender, pinning the no-manager path. T-004 confirms min_out=0 does not trip a hidden floor in the wrapper. T-001 confirms the success path delivers a Coin<QuoteAsset> via the wrapper's transfer call. Coverage of the wrapper's distinguishing behaviour is meaningful, not a thin pass-through smoke test.",
+    "evidence": "All test bodies call `slippage_swap::swap_exact_base_for_quote<SUI, USDC>(...)`. T-002 abort-code path is module-qualified to slippage_swap. T-005 take_from_sender chain validates wrapper transfers.",
+    "recommendation": "No change. Tests are aligned with the wrapper's contract surface."
+  },
+  {
+    "id": "R5-006",
+    "severity": "info",
+    "category": "tests-vs-impl",
+    "title": "T-004 `value > 0` assertion is meaningful (not a tautology)",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:153",
+    "finding": "T-004 invokes the wrapper with `min_out = 0`, then asserts `coin::value(&quote_out) > 0`. Unlike T-001's `>= min_out` echo, this `> 0` is a strict positivity check that the wrapper does NOT enforce internally — when min_out=0, the wrapper's assert is trivially satisfied for any value including 0. So `> 0` independently confirms (a) DeepBook actually executed a real swap (not a no-op), and (b) the wrapper did not silently swallow or replace the quote coin. Good signal.",
+    "evidence": "Line 153: `assert!(coin::value(&quote_out) > 0, 3);` with min_out=0 passed to wrapper.",
+    "recommendation": "No change."
+  },
+  {
+    "id": "R5-007",
+    "severity": "info",
+    "category": "tests-vs-impl",
+    "title": "Type-parameter generality of wrapper not exercised across multiple coin pairs",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move (all 4 tests use <SUI, USDC>)",
+    "finding": "The wrapper is generic over `<BaseAsset, QuoteAsset>` but all 4 tests instantiate only `<SUI, USDC>` against the `setup_everything<SUI, USDC, SUI, DEEP>` fixture. A regression that hardcoded a coin type, or one that failed to monomorphise correctly for a different pair, would not be caught. This is acceptable for unit-level coverage of the wrapper's logic — the generics are pure pass-through to DeepBook and the fixture only supports one pair — but worth noting.",
+    "evidence": "All 4 #[test] functions use the same instantiation. No second-pair test.",
+    "recommendation": "No change required for this cycle. If a second test fixture covering a non-SUI base or non-USDC quote becomes available, consider mirroring T-001 against it."
+  }
+]

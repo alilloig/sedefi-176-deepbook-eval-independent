@@ -1,0 +1,136 @@
+
+> @independent/03-tpsl-vault-ui@0.0.1 test /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui
+> vitest run
+
+
+ RUN  v3.2.4 /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui
+
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/App.test.tsx [ src/App.test.tsx ]
+Error: Failed to resolve import "./App" from "src/App.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui/src/App.test.tsx:64:0
+  40 |  const __vi_import_1__ = await import("@testing-library/react");
+  41 |  const __vi_import_2__ = await import("@tanstack/react-query");
+  42 |  const __vi_import_3__ = await import("./App");
+     |                                       ^
+  43 |  
+  44 |  import { describe, it, expect, vi } from "vitest";
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/CreateVaultForm.test.tsx [ src/CreateVaultForm.test.tsx ]
+Error: Failed to resolve import "./CreateVaultForm" from "src/CreateVaultForm.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui/src/CreateVaultForm.test.tsx:72:0
+  35 |  const __vi_import_1__ = await import("@testing-library/react");
+  36 |  const __vi_import_2__ = await import("@testing-library/user-event");
+  37 |  const __vi_import_3__ = await import("./CreateVaultForm");
+     |                                       ^
+  38 |  
+  39 |  import { describe, it, expect, vi, beforeEach } from "vitest";
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/VaultRow.test.tsx [ src/VaultRow.test.tsx ]
+Error: Failed to resolve import "./VaultRow" from "src/VaultRow.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui/src/VaultRow.test.tsx:44:0
+  22 |  const __vi_import_1__ = await import("@testing-library/react");
+  23 |  const __vi_import_2__ = await import("@testing-library/user-event");
+  24 |  const __vi_import_3__ = await import("./VaultRow");
+     |                                       ^
+  25 |  
+  26 |  import { describe, it, expect, vi, beforeEach } from "vitest";
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/dapp-kit.test.ts [ src/dapp-kit.test.ts ]
+Error: Failed to resolve import "./dapp-kit" from "src/dapp-kit.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui/src/dapp-kit.test.ts:92:17
+  52 |  describe("T-002 dapp-kit pre-imports deployer key before createDAppKit", () => {
+  53 |    it("invokes adapter.importAccount with a keypair matching the fixture address, then calls createDAppKit", async () ...
+  54 |      await import("./dapp-kit");
+     |                   ^
+  55 |      expect(importAccountMock).toHaveBeenCalledTimes(1);
+  56 |      const callArg = importAccountMock.mock.calls[0][0];
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/networkShape.test.ts [ src/networkShape.test.ts ]
+Error: Failed to resolve import "./uiDataLayer" from "src/networkShape.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui/src/networkShape.test.ts:22:31
+  1  |  import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+  2  |  import { runUiDataLayer } from "./uiDataLayer";
+     |                                  ^
+  3  |  const FIXTURE_MANIFEST = {
+  4  |    network: { type: "localnet", rpcUrl: "http://127.0.0.1:9000" },
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/useVaultList.test.ts [ src/useVaultList.test.ts ]
+Error: Failed to resolve import "./useVaultList" from "src/useVaultList.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/03-tpsl-vault/ui/src/useVaultList.test.ts:72:0
+  29 |  }));
+  30 |  const __vi_import_0__ = await import("@testing-library/react");
+  31 |  const __vi_import_1__ = await import("./useVaultList");
+     |                                       ^
+  32 |  import { describe, it, expect, vi, beforeEach } from "vitest";
+  33 |  
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  6 failed (6)
+      Tests  no tests
+   Start at  02:36:48
+   Duration  473ms (transform 8ms, setup 0ms, collect 0ms, tests 0ms, environment 1.39s, prepare 263ms)
+
+ ELIFECYCLE  Test failed. See above for more details.

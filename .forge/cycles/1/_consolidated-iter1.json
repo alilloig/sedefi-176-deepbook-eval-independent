@@ -1,0 +1,1487 @@
+[
+  {
+    "cluster_id": "C001",
+    "title": "main.tsx fetchPoolStats is a stub returning hardcoded zeros instead of wiring chain reads",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "47-60",
+      "47-57"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      1,
+      3
+    ],
+    "max_severity": "critical",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "correctness",
+      "error-handling"
+    ],
+    "recommendations": [
+      "In main.tsx, build a real fetchPoolStats that for each PoolDescriptor: (1) calls sui_getObject + suix_getDynamicFields to traverse the Versioned -> PoolInner -> Book -> BigVector slices and assemble a PoolInnerState; (2) calls fetchFills against suix_queryEvents with the deepbookPackageId; (3) feeds those into computeMarketStats and aggregateFills; (4) returns a PoolCardData composed of the resulting fields. Add an integration test that exercises this wiring end-to-end against a fetch spy so a future regression is caught.",
+      "Either (a) actually wire fetchPoolStats to runDataLayer / fetchFills / computeMarketStats / aggregateFills — these modules exist and are unit-tested but are not connected here — or (b) throw an explicit 'Slot 1 data layer is not yet wired (see RUNBOOK)' error so the inline error UI fires. Returning a structurally-valid but semantically empty result without warning violates the silent-failure-hunter rubric."
+    ],
+    "descriptions": [
+      "The production AppDeps.fetchPoolStats injected at the Vite entry point returns a synthetic PoolCardData with volume24h=0, lastPrice/midPrice/spread=undefined, depthWithinOnePercent=0, and an empty sparkline for every pool. The runDataLayer, fetchFills, aggregateFills and computeMarketStats modules are never composed together. The imported loadManifest is even discarded with `void loadManifest;` — the call site uses an inline duplicate fetch of /localnet.json instead. As a result the running dev server cannot satisfy the contract's stated Behavior section ('within ten seconds sees one card per sandbox-published pool' showing the six required statistics).",
+      "The wired-up `fetchPoolStats` returns a hardcoded zero/undefined PoolCardData for every pool — no RPC call is made, no error is thrown. The user opens the app, sees N cards (one per pool, satisfying the visual layout) all showing '—' for every metric, and has no signal that the data layer is unimplemented. There is no console warning, no error UI, no degradation notice. This is a classic silent-failure pattern: the page renders, the user assumes the sandbox just has no activity, and the actual bug (no RPC integration wired) never surfaces."
+    ],
+    "impacts": [
+      "AC1.1, AC1.3, AC1.4 and AC1.5 all silently fail in the deployed SPA even though the green test suite passes. Every card renders sentinels for mid/spread/last-price and 0 for volume/depth, regardless of sandbox state. E-001 (the chrome-devtools-mcp end-to-end check) cannot pass. The unit/integration tests miss this because App.test.tsx injects mocked deps and PoolCard.test.tsx renders fixture data; nothing exercises the production wiring in main.tsx.",
+      "Silent data loss equivalent to a fully-stubbed app shipping as 'working'. A reviewer landing on the dev URL would see green cards with sentinel values and reasonably conclude the sandbox is idle, not that the data layer is missing. The error UI (AC1.1) is bypassed entirely because no error is thrown. This is the worst-class silent failure: a defective deliverable that looks healthy."
+    ],
+    "evidence": "fetchPoolStats: async (descriptor): Promise<PoolCardData> => ({\n    poolId: descriptor.poolId,\n    symbol: descriptor.symbol,\n    volume24h: 0,\n    lastPrice: undefined,\n    midPrice: undefined,\n    spread: undefined,\n    depthWithinOnePercent: 0,\n    sparkline: [],\n  }),",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-001",
+      "R3-005"
+    ]
+  },
+  {
+    "cluster_id": "C003",
+    "title": "Data layer is disconnected from App rendering; production wiring is a stub",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "47-60"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "critical",
+    "min_severity": "critical",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Compose a real `fetchPoolStats` in main.tsx (or a new `src/composeDataLayer.ts`) that, per descriptor, calls the dataLayer/fillFetcher to get raw inner state + fill events, then runs computeMarketStats + aggregateFills, then maps to PoolCardData. Drop the `void loadManifest; void RPC_URL;` lines once the imports are actually used."
+    ],
+    "descriptions": [
+      "main.tsx wires `fetchPoolStats` as an inline arrow that returns a hard-coded zeroed `PoolCardData` for every descriptor. Nothing in the production path calls `runDataLayer`, `fetchFills`, `aggregateFills`, or `computeMarketStats`. The lines `void loadManifest; void RPC_URL;` are dead-code suppression for imports the wiring never uses. The whole compute/IO stack the cycle was supposed to ship — manifest loader, dataLayer, fillFetcher, fillAggregator, marketStats — exists only to satisfy unit tests and is never composed into the running app."
+    ],
+    "impacts": [
+      "AC1.1-AC1.5 are satisfied only against test fixtures; the dev server boot will render N empty cards (every stat shows the SENTINEL placeholder) regardless of sandbox state. The architecture diagram in spec.md (`page enumerates pools → reads each pool's inner state via sui_getObject → queries fills via suix_queryEvents → renders`) is not realised. A reader walking the codebase has to discover that no module composes the layers, which is the worst kind of design rot — modular pieces that don't form a system."
+    ],
+    "evidence": "fetchPoolStats: async (descriptor): Promise<PoolCardData> => ({\n    poolId: descriptor.poolId,\n    symbol: descriptor.symbol,\n    volume24h: 0,\n    lastPrice: undefined,\n    midPrice: undefined,\n    spread: undefined,\n    depthWithinOnePercent: 0,\n    sparkline: [],\n  }),",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-001"
+    ]
+  },
+  {
+    "cluster_id": "C008",
+    "title": "computeMarketStats does not filter Orders by status so canceled/filled levels can pollute depth",
+    "file": "independent/01-market-stats/src/marketStats.ts",
+    "line_ranges": [
+      "49-53",
+      "55-108",
+      "43-63"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "critical",
+    "min_severity": "low",
+    "disputed_severity": true,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Re-derive the bid/ask price decoder from the on-chain encoding. The chain-shape notes themselves recommend reading price directly off the corresponding order_info::OrderPlaced event; alternatively, construct PoolInnerState ladders from the BigVector keys plus the per-Order tick_size/lot_size and avoid order_id bit decoding entirely. Add a regression test whose ladder fixture uses the verbatim order_id from notes/chain-shape.md (or from a freshly captured sandbox response) so the test fails if the encoding model drifts.",
+      "Filter on `status === 0` (LIVE) before pricing/depth, or sum `BigInt(o.quantity) - BigInt(o.filled_quantity)` instead of raw quantity. Add a fixture row containing a status=2 (FILLED) entry to the marketStats tests so the filter behavior is locked down and a future regression is caught.",
+      "Either keep the Order quantity field as a BigInt internally and convert to Number only at the React render boundary (with an explicit overflow sentinel), or add a guard `if (BigInt(o.quantity) > BigInt(Number.MAX_SAFE_INTEGER))` and log/flag. Same treatment for decodeAskPrice/decodeBidPrice's price extraction."
+    ],
+    "descriptions": [
+      "decodeBidPrice computes `U64_MAX - (id >> 64)`, modelling bid order_ids as `((U64_MAX - price) << 64) | counter`. This produces a u128 with the high bit SET for any reasonably small price (e.g. price=990 yields ~2^128 - 991*2^64). However the OrderPlaced sample captured in notes/chain-shape.md (`is_bid: true, order_id: 12377783720203182843884075, price: 671000`) has the high bit CLEAR (the value is ~1.24e25, well below 2^127). Decoding that real order_id with the implementation would yield `U64_MAX - 671088 ≈ 1.8e19`, which is not the on-chain price 671000. The unit tests pass only because makeBidOrderId in marketStats.test.ts uses the exact same broken encoding the implementation decodes — a pure tautology that cannot detect the divergence from the chain shape captured in notes/chain-shape.md.",
+      "Per notes/chain-shape.md the Order struct exposes a `status` field where 0 = LIVE and others encode PARTIALLY_FILLED / FILLED / CANCELED / EXPIRED. computeMarketStats reads `o.quantity` directly without consulting `o.status` or `o.filled_quantity`. If the BigVector slice ever contains an order whose status is not LIVE (e.g. PARTIALLY_FILLED retained for accounting, or a stale CANCELED entry pre-removal), the depth computation will count its full quantity as resting liquidity, and bestBid/bestAsk may be drawn from a non-resting level. The chain-shape friction-log entry explicitly notes that BigVector slice churn is rapid and races with reads.",
+      "decodeAskPrice and decodeBidPrice cast a BigInt result to Number, and computeMarketStats casts each Order's `quantity` (a decimal-string atomic-units value) to Number without bounds checking. The chain-shape capture shows quantities like '100000000000' (10^11) which fit safely in a JS Number, but DeepBook supports u64 quantities (up to ~1.8e19), well above Number.MAX_SAFE_INTEGER (~9.0e15). A whale order or a pool with very large lot scaling would round silently."
+    ],
+    "impacts": [
+      "Once the SPA is wired to real chain data (after R1-001 is fixed), bid-side best price, mid-price, spread, and depth-within-1% will all be wrong by many orders of magnitude on every pool. AC1.4's invariant (bestBid <= mid <= bestAsk) will likely fail against any live capture, and depth at +/-1% from mid will collapse to zero because real bid prices fall outside the band derived from a garbage mid.",
+      "Depth-at-+/-1% may overstate liquidity on a mid-cycle race where a canceled or fully-filled order is briefly visible; in extreme cases bestBid/bestAsk could come from an order that is already gone from the matching engine's perspective. AC1.4's invariant remains satisfied, but the displayed values are not true to the contract's intent ('depth ... from the pool object's on-chain inner state').",
+      "On the local sandbox the values are small enough that no rounding is observable. On a busier deployment (or a future cycle that points the same code at a non-localnet RPC) depth and last-price could be off by tens of units due to f64 rounding without any error surfaced."
+    ],
+    "evidence": "function decodeBidPrice(orderId: string): number {\n  const id = BigInt(orderId);\n  const inverted = id / PRICE_BIT_OFFSET;\n  return Number(U64_MAX - inverted);\n}",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R1-002",
+      "R1-006",
+      "R1-009"
+    ]
+  },
+  {
+    "cluster_id": "C015",
+    "title": "runDataLayer issues RPC calls but discards every result; failures-by-shape are invisible",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "51-80",
+      "65-79"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      1,
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "correctness",
+      "error-handling"
+    ],
+    "recommendations": [
+      "Promote runDataLayer (or split it) into a function that returns Promise<{ pool: PoolInnerState, fills: RawFillEvent[] }[]>. Add the dynamic-field traversal documented in chain-shape.md Step 4 (suix_getDynamicFields against the asks/bids BigVector ids, then sui_getObject per slice id). Parse OrderInfo into RawFillEvent[]. Wire the result into main.tsx's fetchPoolStats. Extend the network-shape test (or add a sibling test) to assert the function actually returns assembled data, not just that it issues the right URLs.",
+      "Either (a) make runDataLayer actually return per-pool data (and validate the response shape before returning), or (b) clearly mark it as an RPC-shape probe and add per-call shape assertions (e.g. `if (!result?.data?.content) throw ...`). The current shape provides false assurance — calls succeed, errors are impossible."
+    ],
+    "descriptions": [
+      "runDataLayer returns Promise<void> and its body issues `await rpc(...)` calls whose return values are not assigned to any variable. The function exists solely to satisfy the network-shape test T-014, which spies on global fetch and asserts on the URL set. There is no parsing of the sui_getObject content into a PoolInnerState, no traversal of the asks/bids BigVector slices to expose ladder Orders (notes/chain-shape.md Step 4 explicitly requires these follow-up calls), no extraction of OrderInfo.fills[] / executed_quantity into RawFillEvents, and no plumbing back to App / fetchPoolStats. The pool descriptor's poolId is also passed to suix_queryEvents but the RPC call uses a global MoveModule filter only, so the per-pool argument has no effect (see also R1-003).",
+      "`runDataLayer` loops over pools and `await`s `rpc(rpcUrl, 'sui_getObject', ...)` and `rpc(rpcUrl, 'suix_queryEvents', ...)`, then throws the responses on the floor (no assignment, no return value). The function's return type is `Promise<void>`. This is structurally fine for the T-014 network-shape test (which only spies on outbound URLs), but it means: (a) any unexpected response shape (e.g. queryEvents returning `{ data: undefined }`, or sui_getObject returning a non-pool object id) is silently ignored — `rpc` completes successfully, the result is discarded, and the for-loop moves on; (b) the function provides no path for the App to actually consume per-pool data; (c) it is a tautology relative to T-014 (the test passes because the function makes the right calls, but the function does nothing useful with the responses)."
+    ],
+    "impacts": [
+      "AC1.4 ('Mid-price, spread, and depth at +/-1% from mid are computed in-app from the pool object's on-chain inner state, fetched via sui_getObject with whatever showContent / dynamic-field traversal is needed') is unmet by the data layer in isolation. Combined with R1-001, the SPA has no working chain-direct data path even though the contract's central acceptance criterion is exactly that path.",
+      "Beyond the tautology concern (out-of-dimension), the error-handling consequence is that runDataLayer cannot surface any chain-shape mismatch. The two real-world failure modes T-020 and the spec's 'RPC returns unexpected shape' want covered are silent here: the only error class that propagates is the JSON-RPC `error` envelope or a fetch reject. A pool object that exists but lacks the expected `book` field would produce zero error signal."
+    ],
+    "evidence": "for (const d of descriptors) {\n    // sui_getObject for the pool inner state.\n    await rpc(rpcUrl, 'sui_getObject', [\n      d.poolId,\n      { showContent: true, showType: true },\n    ]);\n\n    // suix_queryEvents for the per-pool fill stream.\n    await rpc(rpcUrl, 'suix_queryEvents', [\n      { MoveModule: { package: packageId, module: 'pool' } },\n      null,\n      50,\n      true,\n    ]);\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-004",
+      "R3-012"
+    ]
+  },
+  {
+    "cluster_id": "C002",
+    "title": "Manifest URL /localnet.json is not served by the dev server, so the SPA cannot boot against a real sandbox",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "17-28"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Either (a) add a Vite dev-server middleware that proxies GET /localnet.json to the resolved manifest path, (b) add a small Node-side endpoint that reads the manifest via fs and returns it, or (c) add a `public/localnet.json` symlink as part of `pnpm dev` setup and document the assumption. Whichever choice is made, append the [forge-process] / [sandbox] friction-log entry the contract's Integration / sandbox contract section already mandates for non-obvious manifest delivery."
+    ],
+    "descriptions": [
+      "main.tsx fetches the manifest from the relative URL `/localnet.json`, with an inline error message instructing the user to 're-symlink the manifest under public/'. There is no public/ directory in the project, no Vite middleware, no alias, and no configuration step in vite.config.ts that exposes ~/workspace/deepbook-sandbox/sandbox/deployments/localnet.json to the dev server. As shipped, every dev-server boot will hit a 404 on /localnet.json and surface the manifest-missing error UI, even when the sandbox is fully running."
+    ],
+    "impacts": [
+      "AC1.1 ('the page boots in development mode without runtime errors and renders in a modern browser' once the sandbox is up) is unmet end-to-end. Combined with R1-001 this means no user-visible path produces real market stats; the SPA is a static error screen until the operator manually creates the symlink, with no friction-log entry or RUNBOOK step pointing the way."
+    ],
+    "evidence": "const MANIFEST_URL = '/localnet.json';\n\nconst deps: AppDeps = {\n  loadManifest: async () => {\n    const response = await fetch(MANIFEST_URL);\n    if (!response.ok) {\n      throw new Error(\n        `Deployment manifest not reachable at ${MANIFEST_URL}. ` +\n          'Run `pnpm deploy-all` from the deepbook-sandbox repo and re-symlink ' +\n          'the manifest under public/.',\n      );\n    }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-005"
+    ]
+  },
+  {
+    "cluster_id": "C004",
+    "title": "main.tsx loadManifest path uses unguarded JSON.parse and no validation",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "20-46"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Refactor `loadManifest` to accept either a path (Node) or a fetched string (browser) — or extract a `parseManifest(raw, sourceLabel)` pure function that both code paths share. main.tsx should never re-implement the validation; current `void loadManifest;` is a tell that the dev knew this was wrong but didn't wire it up."
+    ],
+    "descriptions": [
+      "The production runtime (browser path) does NOT use the validated `loadManifest` from `manifest.ts` — it inlines its own loader: fetch → text → JSON.parse → object access. The fetched body is JSON.parse'd with no try/catch (so a truncated/invalid manifest crashes with a raw SyntaxError surfaced into the React error message), the `packageId` is silently coerced via `?? ''` (so a missing package id produces an empty string instead of the actionable error the unit-tested loader would throw), and per-pool entries are NOT validated for required fields (same blind spot as R3-003 but in the path users actually hit). The unit-tested validations in `manifest.ts` are dead code at runtime — `void loadManifest;` on line 59 even confesses this."
+    ],
+    "impacts": [
+      "Every manifest-validation guarantee proven by T-003 / T-004 is bypassed in production. A missing `packages.deepbook.packageId` silently becomes `''` and surfaces as confusing downstream RPC failures (filter `MoveModule.package: ''`) instead of the inline 'Deployment manifest is missing packages.deepbook.packageId' error. The cycle's error-UX promise (AC1.1/AC1.2 actionable error) holds in tests but not in the deployed SPA."
+    ],
+    "evidence": "const parsed = JSON.parse(text) as {\n      packages?: { deepbook?: { packageId?: string } };\n      pools?: Record<string, { poolId: string; baseCoinType: string; quoteCoinType: string }>;\n    };\n    if (!parsed.pools) {\n      throw new Error('Manifest is missing the pools key.');\n    }\n    return {\n      deepbookPackageId: parsed.packages?.deepbook?.packageId ?? '',",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-004"
+    ]
+  },
+  {
+    "cluster_id": "C012",
+    "title": "fetchFills never filters events by poolId so per-pool stats mix events from all pools",
+    "file": "independent/01-market-stats/src/fillFetcher.ts",
+    "line_ranges": [
+      "48-72",
+      "57-69"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": true,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Either (a) push per-pool filtering into fetchFills (`if (ev.poolId !== poolId) continue;` inside the for-loop, with the cap/window logic adjusted accordingly), or (b) restructure the data layer to fetch the OrderInfo stream once per refresh tick and demultiplex by pool_id at a higher layer, passing each pool's slice into aggregateFills. Add a unit test feeding a multi-pool fixture to lock down whichever choice is made.",
+      "Either trim to MAX_FILLS inside the for-loop (`if (collected.length >= MAX_FILLS) { break; }` after each push, plus an outer break) or apply `collected.slice(-MAX_FILLS)` before returning. Tighten T-013's third assertion to `expect(result.length).toBe(50)` to lock the cap."
+    ],
+    "descriptions": [
+      "fetchFills accepts a poolId argument, forwards it to the queryEvents callback, and then collects every event in the response.data without checking ev.poolId === poolId. The chain-direct event filter in dataLayer.ts uses MoveModule { package, module: 'pool' }, which (per the chain-shape friction note) returns OrderInfo events from ALL pools the deployed DeepBook package serves, with the pool_id carried in the event payload itself. With more than one pool in the manifest (the live sandbox has DEEP_SUI and SUI_USDC), each per-pool fetchFills call collects events for both pools. aggregateFills then sums volume24h and computes lastPrice across the mixed stream, producing identical (and wrong) values for every PoolCard.",
+      "The cap check `if (collected.length >= MAX_FILLS) break;` only fires after the inner for-loop has processed an entire page's events. A single page with, say, 100 fills would be appended whole and then the loop exits with 100 entries, not 50. T-013's third assertion accepts `result.length >= 50`, so the test does not pin the cap. Downstream, aggregateFills.sparkline already does `.slice(-50)`, but volume24h would sum all collected fills (including the extras) and the chronological sort happens once per call regardless of size. The behavior contradicts T-013's stated intent ('the most recent 50 fills have been collected')."
+    ],
+    "impacts": [
+      "AC1.5 is violated: 24h volume and the sparkline series will not be per-pool — they'll be aggregate-across-pools, so the SUI/USDC card and the DEEP/SUI card would both display the same volume figure derived from the union of fills. Last-price would be whichever pool emitted the most recent event, regardless of which card it is shown on. Note: this concern is masked today by R1-001 (the production stub returns zeros) but becomes load-bearing the moment the data path is wired.",
+      "Mostly cosmetic on the sandbox (page size in dataLayer.ts is hardcoded to 50), but a future tweak that raises the page size or a chain that returns >50 events on the first page would cause volume24h to include older fills that should have been pruned by the 50-fill cap. Risk is low because the 24h window check would still bound the over-collection in practice."
+    ],
+    "evidence": "for (const ev of response.data) {\n      if (nowMs - ev.timestampMs > DAY_MS) {\n        crossedWindow = true;\n      } else {\n        collected.push(ev);\n      }\n    }\n\n    if (collected.length >= MAX_FILLS) break;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-003",
+      "R1-008"
+    ]
+  },
+  {
+    "cluster_id": "C016",
+    "title": "rpcId module-level mutable counter couples test and prod state across runs",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "51-80",
+      "31-42"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": true,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Change the signature to `Promise<{ poolId: string; innerState: PoolInnerState; fills: RawFillEvent[] }[]>` (or a richer per-pool record) and return parsed results. Have the App's `fetchPoolStats` call into it. Move the response-shape parsing into `dataLayer.ts` (or a sibling `parsers.ts`) so the chain-shape coupling lives in one place.",
+      "Move the counter into a closure created per `runDataLayer` invocation, or just use `Date.now()` / `crypto.randomUUID()` for the id. Either way, drop the module-level mutable."
+    ],
+    "descriptions": [
+      "`runDataLayer` is shaped to satisfy T-014's network-shape lockdown only: it issues `sui_getObject` and `suix_queryEvents` calls per pool, but returns `Promise<void>` and never surfaces the parsed inner state, fill events, or anything else upstream. There is no decoded shape, no handoff to compute, no result. The function name promises a data layer; the body is a fetch-tracer.",
+      "`let rpcId = 0;` at module scope is mutated by `++rpcId` on every JSON-RPC call. The counter persists across runDataLayer invocations and across test files that import the module. JSON-RPC ids only need to be unique within a single connection / batch, so the cross-run sharing is inert today, but it is a small global-state hazard: any future test that asserts on the request id will be order-dependent on test execution."
+    ],
+    "impacts": [
+      "The data layer cannot be reused by App or by any consumer that needs actual chain data. T-014 passes for the wrong reason: it confirms that calls happen in isolation, not that the data layer feeds the rest of the app. Any future test that asserts `runDataLayer` returns useful data has nothing to attach to.",
+      "Negligible at runtime. Slightly harder to reason about than necessary; the module is no longer purely a function library. Flagged because the rest of the codebase consciously injects state via args (App takes `deps`, runDataLayer takes manifest+rpcUrl)."
+    ],
+    "evidence": "export async function runDataLayer(args: RunDataLayerArgs): Promise<void> {\n  const { manifest, rpcUrl } = args;",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R2-002",
+      "R2-010"
+    ]
+  },
+  {
+    "cluster_id": "C018",
+    "title": "computeMarketStats / aggregateFills / fetchFills are wired only to tests, not to the running app",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "51-80",
+      "31-39"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": true,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Either (a) wire dataLayer.ts to call computeMarketStats and aggregateFills against the parsed RPC payloads, return PoolCardData[], and have main.tsx use it; or (b) shrink the tests-only modules to whatever the runtime actually needs and document the deferred wiring as out-of-scope for this cycle. Right now it is a tautology farm: the tests pass but exercise nothing the user sees.",
+      "Use Date.now() or a local counter inside runDataLayer, or simply pass `id: 1` — the responses are processed sequentially and id correlation is not used."
+    ],
+    "descriptions": [
+      "runDataLayer issues sui_getObject and suix_queryEvents calls but discards every response: it returns Promise<void>, never invokes computeMarketStats, aggregateFills, or fetchFills, and never feeds anything into PoolCardData. main.tsx's fetchPoolStats stub returns hard-coded zeros and undefineds. The compute pipeline (marketStats.ts, fillAggregator.ts, fillFetcher.ts — ~230 LOC) is therefore reachable only from its unit tests and is dead code from the runtime's perspective.",
+      "`let rpcId = 0;` at module scope is incremented inside rpc(). JSON-RPC ids only need to be unique within a single client/connection lifetime (and most servers do not care). A monotonically increasing global counter is the kind of state that hurts test isolation (the value leaks across tests in the same process) and adds zero behavioral value."
+    ],
+    "impacts": [
+      "The dev-server boot specified by AC1.1 will mount and render six PoolCards full of sentinels, regardless of chain state. Reviewers reading the source will assume the green tests prove the full pipeline works end-to-end; in fact the connecting glue is missing. This is the largest accidental-complexity-vs-actual-behavior gap in the cycle.",
+      "Tiny — but it's the kind of premature 'production-flavored' detail the contract explicitly excludes (Out of scope: production-grade caching, retry/backoff). Module-level mutable state in an otherwise pure functional module reads as accidental complexity."
+    ],
+    "evidence": "export async function runDataLayer(args: RunDataLayerArgs): Promise<void> {\n  ...\n  for (const d of descriptors) {\n    await rpc(rpcUrl, 'sui_getObject', [...]);\n    await rpc(rpcUrl, 'suix_queryEvents', [...]);\n  }\n}",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R4-002",
+      "R4-006"
+    ]
+  },
+  {
+    "cluster_id": "C020",
+    "title": "T-014 verifies an orphan dataLayer; production fetch path is uncovered",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "51-80"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Either (a) wire `runDataLayer` into the App as the production fetch path so T-014 covers what users hit, or (b) add a parallel network-shape test that drives App with a real `fetchPoolStats` (the one that main.tsx actually constructs) under a fetch spy. The current setup green-lights AC1.5 without proving it."
+    ],
+    "descriptions": [
+      "T-014 (network-shape lockdown) drives `runDataLayer`, a self-contained 30-line function that issues `sui_getObject` and `suix_queryEvents` directly via `fetch`. But `runDataLayer` is never imported by `App.tsx`, `fillFetcher.ts`, or any production wiring — App accepts an injected `fetchPoolStats` whose real implementation does not exist anywhere in the cycle's src tree. The test thus locks down the URL shape of a function that ships dead, while the *actual* code path that will fetch chain data at runtime (whatever wires `fillFetcher.QueryEventsFn` to a Sui client and whatever satisfies `AppDeps.fetchPoolStats` in main.tsx) is unverified. The forbidden-URL guarantee that AC1.5 requires is not enforced against the code the user will run."
+    ],
+    "impacts": [
+      "AC1.5's no-indexer-pool-keyed-route invariant is only proven for an unused stub. The shipped SPA could call `:9008/get_pools` with no test catching it. The cycle's most important integration test is a tautology against an isolated fixture function."
+    ],
+    "evidence": "export async function runDataLayer(args: RunDataLayerArgs): Promise<void> {\n  const { manifest, rpcUrl } = args;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-001"
+    ]
+  },
+  {
+    "cluster_id": "C022",
+    "title": "manifest.ts uses node:fs and cannot run in a browser; main.tsx forks the loader",
+    "file": "independent/01-market-stats/src/manifest.ts",
+    "line_ranges": [
+      "12-67"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Split into `manifestParser.ts` (pure: takes a JSON string or already-parsed object, validates, returns LoadedManifest, throws on malformed input — fully isomorphic) and `manifestSource.ts` (per-environment: `loadFromFs(path)` for tests/Node, `loadFromFetch(url)` for the browser). Both call into `manifestParser.ts`. main.tsx and tests then share the same validation surface."
+    ],
+    "descriptions": [
+      "manifest.ts imports `promises as fs` from `node:fs` and uses `fs.readFile`. This module cannot run in a Vite browser bundle. main.tsx silently sidesteps this by re-implementing the manifest loader inline as a `fetch('/localnet.json')` and never invokes the `loadManifest` it imports (the `void loadManifest` line acknowledges this). The result: two parallel manifest-parsing implementations with no shared validation logic. The unit-tested loader (manifest.ts) is server-side; the production loader (main.tsx) is browser-side and untested. Drift between them is invisible."
+    ],
+    "impacts": [
+      "Validation rules differ — main.tsx's inline loader does not error when `packages.deepbook.packageId` is missing (it falls back to empty string), while manifest.ts throws. Users will see different error messages depending on which path runs. The cycle's 'manifest loader' tests (T-001..T-004) cover only the unused server-side path."
+    ],
+    "evidence": "import { promises as fs } from 'node:fs';",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-004"
+    ]
+  },
+  {
+    "cluster_id": "C025",
+    "title": "types.ts is a stub; chain-shape-derived types are duplicated across modules",
+    "file": "independent/01-market-stats/src/types.ts",
+    "line_ranges": [
+      "10-33"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Move every chain-shape-derived type to types.ts (PoolInnerState, Book, Order, FillRecord/RawFillEvent unified, SparklinePoint, PoolCardData, DeploymentManifest, LoadedManifest, PoolDescriptor) and have all modules import from there. Drop the local copies. Keep the doc-comment in types.ts pointing at chain-shape.md."
+    ],
+    "descriptions": [
+      "types.ts declares `PoolDescriptor`, `ManifestPoolEntry`, `DeploymentManifest`, `LoadedManifest` — but no module in src/ imports from it. manifest.ts re-declares `PoolDescriptor` and `LoadedManifest` locally; dataLayer.ts re-declares `RunDataLayerArgs.manifest` inline; main.tsx re-inlines the same parsed-manifest shape; PoolCard.tsx re-declares `SparklinePoint` and `PoolCardData`; fillAggregator.ts re-declares `SparklinePoint`; marketStats.ts owns its own `Order`/`Book`/`PoolInnerState`/`MarketStats`; fillFetcher.ts owns its own `RawFillEvent` (different name and shape from `fillAggregator.FillRecord`). The contract states 'TypeScript types in src/ are derived from that file'; in practice, types.ts is an empty shrine that satisfies the doc-comment test (T-022) and nothing else."
+    ],
+    "impacts": [
+      "The chain-shape file is the single source of truth in name only. Any drift in the manifest format requires editing four to five files (manifest.ts, dataLayer.ts, main.tsx, App.tsx via AppDeps, types.ts) and there is nothing that fails at compile-time when one is missed. The same issue applies to the order/fill types: `fillFetcher.RawFillEvent` is structurally identical to `fillAggregator.FillRecord` but cannot be assigned across without the consumer knowing both shapes happen to align."
+    ],
+    "evidence": "export interface PoolDescriptor {\n  symbol: string;\n  poolId: string;\n  baseCoinType: string;\n  quoteCoinType: string;\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-003"
+    ]
+  },
+  {
+    "cluster_id": "C026",
+    "title": "src/types.ts is fully unused — duplicates types defined in manifest.ts",
+    "file": "independent/01-market-stats/src/types.ts",
+    "line_ranges": [
+      "1-32"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Delete src/types.ts entirely OR delete the duplicate type declarations from src/manifest.ts and have manifest.ts re-export from types.ts. Pick one home for these types and ensure all imports converge there."
+    ],
+    "descriptions": [
+      "src/types.ts defines PoolDescriptor, ManifestPoolEntry, DeploymentManifest, and LoadedManifest, but no source or test file imports anything from this module. Grep across src/ and tests/ for `from.*types` returns zero matches. The two types actually used at runtime (PoolDescriptor and LoadedManifest) are re-declared inside src/manifest.ts, and every consumer (App.tsx, dataLayer.ts, manifest.test.ts) imports them from './manifest.js'."
+    ],
+    "impacts": [
+      "Dead module that will mislead future maintainers — they will edit one definition, the runtime will silently keep using the other. Also defeats the AC1.6 audit signal: the doc-comment that cites notes/chain-shape.md as the derivation source lives in the file nobody reads, while the live duplicate in manifest.ts has no such citation."
+    ],
+    "evidence": "export interface PoolDescriptor {\n  symbol: string;\n  poolId: string;\n  baseCoinType: string;\n  quoteCoinType: string;\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-001"
+    ]
+  },
+  {
+    "cluster_id": "C037",
+    "title": "T-019/T-020 pass because App echoes the stub's own error message verbatim",
+    "file": "independent/01-market-stats/tests/App.test.tsx",
+    "line_ranges": [
+      "132-188",
+      "104-129"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": true,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Either explicitly assert the App contributes recipe text the loader did NOT provide (stub a generic 'EACCES' error and assert App still tells the user about deploy-all), OR rewrite the test name to honestly say 'App surfaces the loader's error message in an alert region' and drop the actionability framing.",
+      "Either flush all pending promises before asserting (e.g. `await new Promise(r => setTimeout(r, 0))` after the waitFor), or document the test's window explicitly. Acceptable as-is for a smoke test."
+    ],
+    "descriptions": [
+      "T-019 stubs loadManifest to throw `'Deployment manifest not found at /tmp/missing.json. Run `pnpm deploy-all` from the deepbook-sandbox repo.'`, then asserts the rendered DOM contains `/deploy-all|deepbook-sandbox/i`. T-020 follows the same pattern with a stub error containing `127.0.0.1:9000` and regex matching it. App.tsx renders the raw error via `<pre>{state.error}</pre>` — so the assertion succeeds because the test's own stub message is dumped to the DOM, not because App constructed any 'actionable inline error UI'. If the contract's intent is that App provides the bootstrap recipe text itself, that intent is not tested; if the intent is that App surfaces the loader's error verbatim, the test is not adversarial enough — replace the stubbed error with `'whatever'` and the test would fail, proving it only checks string passthrough.",
+      "T-018 mounts App, waits for one PoolCard to appear, then asserts `consoleErrSpy` was never called. React effects and async state transitions can log errors after the awaited assertion resolves; the test doesn't flush microtasks or wait for any 'fully settled' signal. A late console.error from an unhandled promise inside a fetchPoolStats branch could escape the spy window."
+    ],
+    "impacts": [
+      "AC1.1's 'actionable inline error UI' assertion is tautological. A future refactor that drops the error-rendering UI altogether would be caught, but a refactor that strips the bootstrap-recipe synthesis logic from the App (because there isn't any) would not. The contract requirement 'inline message naming the sandbox boot command' is unverified at the App layer; it is only verified inside the loader (T-003).",
+      "AC1.1's 'no console errors during initial mount and paint' is checked at one specific moment, not across the full mount lifecycle. Mild — most React error logging is synchronous to the failing render."
+    ],
+    "evidence": "throw new Error(\n          'Deployment manifest not found at /tmp/missing.json. ' +\n            'Run `pnpm deploy-all` from the deepbook-sandbox repo.',\n        );",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R5-002",
+      "R5-009"
+    ]
+  },
+  {
+    "cluster_id": "C021",
+    "title": "Manifest loader does not validate per-pool entry shape; missing fields silently become undefined",
+    "file": "independent/01-market-stats/src/manifest.ts",
+    "line_ranges": [
+      "57-66",
+      "57-64"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      1,
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "correctness",
+      "error-handling"
+    ],
+    "recommendations": [
+      "Validate each pool entry: throw if poolId, baseCoinType, or quoteCoinType is not a non-empty string, naming the offending pool symbol in the error. Add a test fixture with a malformed pool entry to lock the behavior down.",
+      "After Object.entries, validate that each entry's `poolId`, `baseCoinType`, and `quoteCoinType` are non-empty strings; throw a specific 'Manifest pool <symbol> is missing field <name>' error otherwise. Mirror the check style already used for `packages.deepbook.packageId`."
+    ],
+    "descriptions": [
+      "loadManifest maps `Object.entries(parsed.pools)` straight into PoolDescriptors using `entry.poolId`, `entry.baseCoinType`, `entry.quoteCoinType` without validating that any of those properties exist or are non-empty strings. A malformed manifest (e.g. a partial deploy that wrote a pool block with only baseCoinType populated) would yield descriptors with `poolId === undefined`, which would then propagate into sui_getObject calls as the literal string 'undefined' — a confusing failure mode that does not point at the manifest as the root cause.",
+      "loadManifest validates that `parsed.pools` is an object and that `packages.deepbook.packageId` is a non-empty string, but does NOT validate that each entry under `pools` has the three load-bearing fields (`poolId`, `baseCoinType`, `quoteCoinType`). The `Object.entries(parsed.pools).map(...)` blindly trusts each entry; if a sandbox manifest is partially written or the schema drifts (e.g. a future sandbox renames `poolId` to `pool_id`), the loader returns `PoolDescriptor` records with `poolId: undefined` cast as a string. Downstream `sui_getObject` will then be called with `undefined` as the object id, producing a cryptic RPC error far from the root cause."
+    ],
+    "impacts": [
+      "AC1.2 says pool enumeration must mirror what the sandbox published. A partially-written manifest produces undefined poolIds rather than a clear validation error. Tests T-001 through T-004 cover happy path + missing pools key + missing packageId, but not per-entry field validation.",
+      "Schema drift in the sandbox manifest produces silent data corruption rather than the clear validation error AC1.2 is meant to guarantee. T-004 covers the missing-`pools`-key case but no test covers a malformed pool entry; this is a blind spot for the same dimension AC1.2 asks the loader to defend."
+    ],
+    "evidence": "const pools: PoolDescriptor[] = Object.entries(parsed.pools).map(\n    ([symbol, entry]) => ({\n      symbol,\n      poolId: entry.poolId,\n      baseCoinType: entry.baseCoinType,\n      quoteCoinType: entry.quoteCoinType,\n    }),\n  );",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-007",
+      "R3-003"
+    ]
+  },
+  {
+    "cluster_id": "C006",
+    "title": "main.tsx contains `void loadManifest; void RPC_URL;` — dead-import suppression",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "59-60"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Either remove the unused loadManifest import and RPC_URL constant outright, or refactor loadManifest to accept an injectable reader (fs vs fetch) and reuse it from main.tsx. Drop the `void X` placeholders."
+    ],
+    "descriptions": [
+      "main.tsx imports loadManifest and defines RPC_URL but never uses either. The `void loadManifest; void RPC_URL;` lines are present solely to silence unused-symbol warnings. The actual deps.loadManifest is an inline reimplementation that fetches '/localnet.json' and re-parses the same JSON shape that loadManifest already handles."
+    ],
+    "impacts": [
+      "Two parallel manifest loaders exist (loadManifest in manifest.ts uses node:fs; the inline one in main.tsx uses fetch), each with its own validation logic and error messages. They will drift. The `void` statements are a code smell that signals 'the right thing should be wired here but isn't yet'."
+    ],
+    "evidence": "void loadManifest;\nvoid RPC_URL;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-003"
+    ]
+  },
+  {
+    "cluster_id": "C009",
+    "title": "Order type omits price; price is decoded from order_id even though chain-shape.md says event-source is preferred",
+    "file": "independent/01-market-stats/src/marketStats.ts",
+    "line_ranges": [
+      "15-66"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Add a `price?: number` field to `Order` (sourced from the OrderPlaced event in the data layer). Update computeMarketStats to prefer `o.price` when present and only call `decodePrice(order_id)` as a documented fallback. Keep the existing tests but add a fixture row where `price` is supplied directly, asserting it is used over the bit-decoded value."
+    ],
+    "descriptions": [
+      "chain-shape.md states: 'Slot 1 prefers reading `price` directly off the corresponding `order_info::OrderPlaced` event when computing depth ladders, falling back to order_id high-bit decoding only if the event is unavailable.' marketStats.ts's `Order` interface has no `price` field and unconditionally calls `decodeAskPrice(o.order_id)` / `decodeBidPrice(o.order_id)`. The captured Order struct in chain-shape.md does not even contain a literal `price` field — price must be carried alongside via the OrderPlaced/OrderInfo event stream — but the design has made no provision for joining the two streams. The compute function therefore commits to the documented fallback path as if it were the primary path."
+    ],
+    "impacts": [
+      "When the order_id encoding shifts (e.g. DeepBook upgrades, or an order with no companion event exists in the book), the depth/mid/spread numbers will be silently wrong. The design loses the documented invariant that the event-derived price is canonical. There is also a subtle naming friction: tests/marketStats.test.ts builds fixture order_ids using the bit-encoding (lines from red.log mention `ASK_BIT_OFFSET = 1n << 127n` in the test), so the test confirms the fallback path round-trips, not that the system can integrate event-derived prices."
+    ],
+    "evidence": "export interface Order {\n  order_id: string;\n  quantity: string;\n  filled_quantity: string;\n  status: number;\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-006"
+    ]
+  },
+  {
+    "cluster_id": "C010",
+    "title": "computeMarketStats calls BigInt(orderId) with no try/catch; invalid order_id throws SyntaxError",
+    "file": "independent/01-market-stats/src/marketStats.ts",
+    "line_ranges": [
+      "43-53"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Wrap the order-id decode in try/catch and skip orders whose order_id fails to parse (with optional console.warn). Likewise, after `Number(o.quantity)`, guard with `Number.isFinite(qty)`; skip non-finite levels. Both changes preserve the happy-path numerics while preventing a single bad order from poisoning a whole pool's stats."
+    ],
+    "descriptions": [
+      "decodeAskPrice and decodeBidPrice both call `BigInt(orderId)` on `Order.order_id`, which is typed as `string` but ultimately sourced from chain JSON. If the chain ever returns a non-numeric string (sandbox-side bug, BCS deserialisation regression, or an order_id field renamed in a future DeepBook version), `BigInt(...)` throws a synchronous `SyntaxError: Cannot convert <x> to a BigInt`. computeMarketStats has no try/catch and propagates the throw to its caller, which in turn would (per R3-007) blank the entire dashboard. Similarly, `Number(o.quantity)` silently coerces non-numeric strings to NaN, and NaN levels then fail every `lvl.price >= lo && lvl.price <= hi` check (NaN comparisons are always false), so depth silently drops affected levels."
+    ],
+    "impacts": [
+      "The BigInt throw is a hard-crash path triggered by chain-shape drift — exactly what AC1.6 (chain-shape capture) was meant to defend against, but only at compile time. The NaN coercion silently miscounts depth without any signal. Both are low-probability today (the chain shape is captured), but T-007 explicitly demands graceful one-sided handling — graceful handling of malformed input is a peer concern."
+    ],
+    "evidence": "function decodeAskPrice(orderId: string): number {\n  const id = BigInt(orderId);\n  const withoutHigh = id & (ASK_BIT_OFFSET - 1n);\n  return Number(withoutHigh / PRICE_BIT_OFFSET);\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-013"
+    ]
+  },
+  {
+    "cluster_id": "C013",
+    "title": "fillFetcher.QueryEventsFn invents a custom shape and is never wired to a real client",
+    "file": "independent/01-market-stats/src/fillFetcher.ts",
+    "line_ranges": [
+      "32-49"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Either (a) collapse fillFetcher into dataLayer (one effectful module that owns all RPC + decoding + pagination), or (b) keep them separate but make `QueryEventsFn` accept the real `SuiJsonRpcClient.queryEvents` signature and have fillFetcher do the parsedJson → RawFillEvent decode itself. Option (a) is simpler for Slot 1's scope."
+    ],
+    "descriptions": [
+      "fillFetcher defines its own `QueryEventsFn = (args: { packageId, poolId, cursor }) => Promise<QueryEventsResponse>` with a `RawFillEvent` shape that has already been pre-extracted into `{ poolId, timestampMs, baseQuantity, price }`. This is neither the Sui RPC `suix_queryEvents` shape nor anything the dataLayer offers. dataLayer.ts does not import or call fetchFills. The unit test mocks the function with hand-crafted pages, so the fetcher 'works' in isolation but has no adapter into the live RPC envelope (`{ data, hasNextPage, nextCursor: { txDigest, eventSeq } }` over JSON-RPC)."
+    ],
+    "impacts": [
+      "Even if R2-001 is fixed and main.tsx wants to call fetchFills, there is no glue layer translating the JSON-RPC response into RawFillEvent. The fetcher's pagination logic is wasted because the wiring effort to use it is non-trivial: a missing `decodeQueryEventsResponse(envelope) -> RawFillEvent[]` step. The 'pure-vs-effectful split' is muddled — fillFetcher is effectful (issues queryEvents calls) but its effect type is fictional."
+    ],
+    "evidence": "export type QueryEventsFn = (args: {\n  packageId: string;\n  poolId: string;\n  cursor: QueryEventsCursor | null;\n}) => Promise<QueryEventsResponse>;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-005"
+    ]
+  },
+  {
+    "cluster_id": "C017",
+    "title": "rpc() does not check response.ok; non-2xx responses are JSON-parsed and may produce confusing errors",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "33-49",
+      "44-48"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Before calling response.json(), assert `response.ok` and throw `Error('Sui RPC ${method} returned HTTP ${response.status} from ${rpcUrl}. Verify the sandbox is running.')`. Wrap the response.json() call in try/catch and throw an analogous wrapping error for body-parse failures.",
+      "Wrap the fetch call: `try { response = await fetch(...) } catch (err) { throw new Error(`Sui RPC at ${rpcUrl} unreachable (${(err as Error).message}). Run pnpm deploy-all from the deepbook-sandbox repo.`, { cause: err }); }`",
+      "After the `if (env.error)` branch, add `if (env.result === undefined) throw new Error(`${method} returned no result and no error`);`"
+    ],
+    "descriptions": [
+      "The `rpc` helper calls `fetch(...)` and immediately does `await response.json()` without checking `response.ok` or `response.status`. If the Sui RPC endpoint returns a 502/503 (gateway down), 404 (wrong path), or HTML error page (typical of a misconfigured proxy), `response.json()` will throw a SyntaxError ('Unexpected token < in JSON at position 0'). That error is then surfaced verbatim, with no indication that the underlying problem was an HTTP-level failure or unreachable endpoint — which is exactly the AC1.1 / T-020 scenario the inline error UI is supposed to handle gracefully.",
+      "A `fetch(...)` call in the browser rejects with a `TypeError: Failed to fetch` (or in Node with `fetch failed` + cause `ECONNREFUSED`) when the host is unreachable, the port is closed, or DNS fails. `rpc()` does not wrap fetch in a try/catch, so the raw browser error message ('TypeError: Failed to fetch') propagates to App.useEffect and is shown to the user verbatim. That message names neither the RPC URL nor the sandbox boot recipe.",
+      "After parsing the JSON-RPC envelope, `rpc()` returns `env.result as T` without first checking that `env.result` exists. A well-formed JSON-RPC reply must have either `result` or `error`; an aberrant response (proxy injection, partial server impl) could have neither, in which case `rpc()` returns `undefined` typed as T and downstream code mis-types undefined as the expected shape. No explicit check; no log."
+    ],
+    "impacts": [
+      "T-020 passes only because the test stubs `fetchPoolStats` to throw a pre-formatted message. Against a real unreachable RPC (network drop, sandbox down, wrong port), the user sees `SyntaxError: Unexpected token < ...` instead of the actionable RPC-unreachable error the spec promises (AC1.4/1.5/UX-flow 'error path' detail).",
+      "The most common failure mode (sandbox not running, the prototypical RPC-unreachable case AC1.1 calls out) produces the least actionable error: an opaque browser TypeError rather than 'Sui RPC at http://127.0.0.1:9000 unreachable; run pnpm deploy-all from the deepbook-sandbox repo.' T-020 doesn't catch this because the test stubs fetchPoolStats with a pre-formatted message.",
+      "Edge case — well-behaved Sui RPC servers won't trigger this — but a low-cost defensive check would prevent silent undefined propagation through `runDataLayer`'s `await rpc(...)` calls (which currently discard the result anyway, see R3-012)."
+    ],
+    "evidence": "const response = await fetch(rpcUrl, {\n    method: 'POST',\n    ...\n  });\n  const env = (await response.json()) as JsonRpcEnvelope<T>;\n  if (env.error) {\n    throw new Error(`${method} failed: ${env.error.message}`);\n  }",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R3-009",
+      "R3-010",
+      "R3-011"
+    ]
+  },
+  {
+    "cluster_id": "C023",
+    "title": "loadManifest swallows fs error cause; original errno (EACCES, EISDIR) is lost",
+    "file": "independent/01-market-stats/src/manifest.ts",
+    "line_ranges": [
+      "31-37",
+      "39-42"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Either (a) discriminate on `(err as NodeJS.ErrnoException).code` and only claim 'not found' when code === 'ENOENT', falling through to a generic 'manifest unreadable: <code>' message for other cases, or (b) attach `{ cause: err }` to the rethrown Error so downstream consumers can introspect.",
+      "Wrap JSON.parse in try/catch and rethrow with the same actionable shape used for ENOENT: `Deployment manifest at ${manifestPath} is not valid JSON: <inner.message>. ${BOOTSTRAP_HINT}`."
+    ],
+    "descriptions": [
+      "The try/catch around fs.readFile rethrows a fixed string ('Deployment manifest not found at <path>...') for ANY readFile failure — ENOENT (the only case the user-visible message claims), EACCES (permission), EISDIR (path is a directory), EMFILE, etc. The original error is dropped on the floor: no `cause`, no error code, no log. A user whose manifest exists but is unreadable due to perms will see a misleading 'not found' message and chase the wrong fix.",
+      "After fs.readFile succeeds, `JSON.parse(raw)` is called with no try/catch. If the manifest file exists but contains invalid JSON (truncated write from `pnpm deploy-all` mid-flight, accidental editor save, BOM, etc.), the loader throws a bare `SyntaxError: Unexpected token ... in JSON at position N` with no manifest path, no bootstrap hint, and no indication this is a manifest-shape problem. The App component will surface this verbatim in <pre>{state.error}</pre> without any actionable context."
+    ],
+    "impacts": [
+      "Misleading error UI for non-ENOENT failures. Operator wastes time re-running `pnpm deploy-all` (which won't fix a permissions issue) instead of seeing the real errno. Diagnostic info is permanently lost — there is no console.error fallback either.",
+      "User sees a confusing JS-internals error instead of the actionable inline error required by AC1.1 / AC1.2 ('actionable error pointing at the bootstrap recipe'). Mid-deploy race with the sandbox's manifest write is plausible — the contract explicitly mentions sandbox restart as a real condition."
+    ],
+    "evidence": "} catch (err) {\n    throw new Error(\n      `Deployment manifest not found at ${manifestPath}. ${BOOTSTRAP_HINT}`,\n    );\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-001",
+      "R3-002"
+    ]
+  },
+  {
+    "cluster_id": "C024",
+    "title": "PoolDescriptor / LoadedManifest interface declared in three places",
+    "file": "independent/01-market-stats/src/manifest.ts",
+    "line_ranges": [
+      "14-24"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Promote types.ts to the canonical home; export PoolDescriptor, LoadedManifest, FillRecord, SparklinePoint, MarketStats from there and import everywhere else. Delete the duplicate declarations."
+    ],
+    "descriptions": [
+      "PoolDescriptor and LoadedManifest are declared in src/types.ts (lines 10-15, 29-32) AND src/manifest.ts (lines 14-19, 21-24). PoolCard's SparklinePoint shape is also re-declared in src/components/PoolCard.tsx (lines 11-14) instead of being imported from src/fillAggregator.ts where the same shape exists (lines 16-19). Three near-duplicate sources of truth for shapes the spec wants derived from chain-shape.md."
+    ],
+    "impacts": [
+      "When chain-shape evolves, the maintainer has to find and update N copies. The risk is silent drift between the type the test asserts on and the type the runtime actually receives."
+    ],
+    "evidence": "export interface PoolDescriptor {\n  symbol: string;\n  poolId: string;\n  baseCoinType: string;\n  quoteCoinType: string;\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-004"
+    ]
+  },
+  {
+    "cluster_id": "C030",
+    "title": "App has no periodic refresh; sparkline-freshness AC is not architecturally addressed",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "28-46",
+      "28-45"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Use `Promise.allSettled`. Per-pool: if rejected, render a PoolCard with a per-card error sentinel (or a degraded PoolCardData with all undefined values + an error message field). Reserve top-level `state.status === 'error'` for manifest-load failure only.",
+      "Add a `setInterval`-based refresh in the App effect (or a custom `useChainPolling(intervalMs, fetcher)` hook) that re-runs `fetchPoolStats` every ~15-20 s. Because `fetchPoolStats` is per-descriptor, refresh can stay per-pool granular and reuse the Promise.allSettled fix from R2-008. Document the cadence in code comments tracing back to AC1.5 freshness."
+    ],
+    "descriptions": [
+      "App uses `Promise.all(manifest.pools.map(p => deps.fetchPoolStats(p)))`. Any single pool's failure rejects the whole batch and flips state to `error`, hiding every other pool's data. The contract says the page should render one card per sandbox-published pool; partial-success is the realistic case (BigVector slice churn from chain-shape.md mentions sub-second deletion + recreation that races sui_getObject). The design conflates 'manifest unreachable' (page-level error) with 'one pool's RPC blipped' (card-level degradation).",
+      "Contract section 'In scope' requires 'Periodic refresh of the fill stream so the sparkline reflects new fills within 30 s of them landing.' App.tsx's effect runs once on mount with no setInterval, no polling hook, no swr/react-query, no manual refresh trigger. The 30-second freshness behaviour is silently absent. Tests (T-015..T-020) do not exercise refresh, so the green log passes despite this gap."
+    ],
+    "impacts": [
+      "On a normal sandbox with 2 pools, a transient RPC error on one pool wipes the whole UI and surfaces a generic 'Could not load market data' banner — the user cannot tell which pool failed and the other pool's data they could have shown is gone. AC1.3 ('one card per pool') is violated under partial failure.",
+      "AC1.3 / AC1.5 freshness behaviour is not implemented. E-001 (the Phase-F E2E that verifies sparkline updates within 30 s of a fresh fill) will fail when run against a live sandbox. From a design standpoint, retrofitting refresh later means choosing a strategy (interval polling, SSE, WebSocket subscription) which affects the data-layer contract — better to commit to one now."
+    ],
+    "evidence": "  React.useEffect(() => {\n    let cancelled = false;\n    (async () => {\n      try {\n        const manifest = await deps.loadManifest();\n        const cards = await Promise.all(\n          manifest.pools.map((p) => deps.fetchPoolStats(p)),\n        );\n        if (!cancelled) setState({ status: 'ready', cards });",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-008",
+      "R2-009"
+    ]
+  },
+  {
+    "cluster_id": "C031",
+    "title": "App.useEffect's Promise.all aborts at first failure; partial pool failures cause total error UI",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "30-40",
+      "47-69"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Use `Promise.allSettled` and render per-pool cards with a per-card error sentinel for failed pools (PoolCard already supports sentinel rendering via `fmt`). Reserve the page-level error UI for the manifest-load failure path, where the failure really is global.",
+      "Wrap the PoolCard list (or App body) in a small ErrorBoundary class component that renders the same `<div role='alert'>` shell on render failure. This is a 20-line addition and closes the AC1.1 gap definitively."
+    ],
+    "descriptions": [
+      "App fetches per-pool stats with `Promise.all(manifest.pools.map(p => deps.fetchPoolStats(p)))`. If any single pool's fetchPoolStats rejects (e.g. one pool object is mid-upgrade, or one suix_queryEvents page errors), the entire batch rejects and the App switches to the global error UI. All other pools — which fetched successfully — are discarded. The user sees 'Could not load market data' even when N-1 of N pools are healthy. This violates the spirit of AC1.4/AC1.5 ('per-pool' rendering) by making one pool's transient failure poison the whole dashboard.",
+      "App handles async load failures (the try/catch in useEffect) but provides no React error boundary around the rendered `<PoolCard>` list. If a PoolCard ever throws during render (e.g. a future addition to PoolCardData passes a non-finite sparkline value through a code path that bypasses `fmt`, or `data.sparkline.map` is called on a non-array because the data layer mis-shaped a response), React 19 will unmount the entire tree by default and show a blank page with only a console error. AC1.1 requires the page to render an actionable error; an unhandled render-time exception would break that contract silently."
+    ],
+    "impacts": [
+      "Brittle error semantics. A single flaky pool blanks the entire dashboard. Sandbox restart races (the contract explicitly mentions this as plausible) will commonly knock out one pool's response while others are fine, producing an all-or-nothing error UI that obscures which pool is the problem.",
+      "Edge-case render failures take down the whole app instead of degrading to the inline error UI. Today PoolCard is defensive (uses `fmt` sentinel) so practical risk is low, but the absence of an error boundary is a class-level gap in the error story."
+    ],
+    "evidence": "<div>\n        {state.cards.map((c) => (\n          <PoolCard key={c.poolId} data={c} />\n        ))}\n      </div>",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R3-007",
+      "R3-008"
+    ]
+  },
+  {
+    "cluster_id": "C033",
+    "title": "No test exercises the 30-second sparkline refresh required by the contract",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "28-45"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Add an integration test using `vi.useFakeTimers()` that mounts App with a fetchPoolStats stub returning v1 data, advances time 30s, asserts fetchPoolStats is called again, and asserts the new card values appear. Alternatively, refactor refresh into a separate hook with its own unit test. Today the implementation has no refresh at all and no test would notice."
+    ],
+    "descriptions": [
+      "The contract Behavior section states 'the sparkline updates within thirty seconds whenever a new fill lands on chain' and the in-scope list calls out 'Periodic refresh of the fill stream so the sparkline reflects new fills within 30 s'. App.tsx's effect runs `loadManifest` + `fetchPoolStats` once on mount and never schedules a re-fetch. No test (unit or integration) drives a fake timer / second fetch and asserts a re-render. The contract accepts that E-001 covers part of this story but the per-cycle red/green loop never proves the refresh exists."
+    ],
+    "impacts": [
+      "A refresh bug (no setInterval, wrong interval, missed cleanup) ships green. AC1.3's freshness requirement has no executable test."
+    ],
+    "evidence": "React.useEffect(() => {\n    let cancelled = false;\n    (async () => {\n      try {\n        const manifest = await deps.loadManifest();\n        const cards = await Promise.all(\n          manifest.pools.map((p) => deps.fetchPoolStats(p)),\n        );",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-004"
+    ]
+  },
+  {
+    "cluster_id": "C038",
+    "title": "PoolCard tests check labels but never assert sparkline values are rendered",
+    "file": "independent/01-market-stats/tests/PoolCard.test.tsx",
+    "line_ranges": [
+      "31-54"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Add value assertions: e.g. `expect(screen.getByText('1234.56')).toBeInTheDocument()` for volume, and assert at least one sparkline tick value (`'0.6700'`) is rendered when `data.sparkline` is non-empty. The label-only check is fine in addition, but not as the sole gate."
+    ],
+    "descriptions": [
+      "T-015 checks six label patterns are present. The sparkline pattern is `/sparkline|trades/i`, satisfied by the label text alone (`Sparkline (last 50 trades)`). Neither T-015 nor T-016 asserts that the actual sparkline values from `data.sparkline` (e.g. `0.6700`, `0.6710`, `0.6720`) appear in the rendered output. A regression where PoolCard rendered the sparkline as an empty string or silently dropped it would pass both tests. Similarly, no test asserts that the numeric stat values (1234.56, 0.671, 0.6715, etc.) are visible — only that the labels are."
+    ],
+    "impacts": [
+      "AC1.3 requires the page to *display* six statistics; the tests only enforce that six labels exist. A bug where every value rendered as the sentinel placeholder `—` would pass T-015 against the populated fixture. The sparkline freshness story (E-001) leans on the sparkline actually rendering numbers, which no unit test checks."
+    ],
+    "evidence": "const REQUIRED_LABEL_PATTERNS = [\n  /24h(?:\\s*hour)?\\s*volume/i,\n  /last\\s*price/i,",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-003"
+    ]
+  },
+  {
+    "cluster_id": "C005",
+    "title": "main.tsx silently no-ops when #root element is missing",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "62-65"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Replace `if (root)` with a thrown error or `console.error('main.tsx: #root element missing in index.html')`. Silent skip is the wrong default for a fatal mounting precondition."
+    ],
+    "descriptions": [
+      "If `document.getElementById('root')` returns null (e.g. broken index.html, hot-reload race, mismatched id), the `if (root)` guard silently skips `createRoot(...).render(...)` and the page is left blank with no console error and no diagnostic. There is no else branch, no console.error, and no DOM message inserted to indicate the React tree never mounted."
+    ],
+    "impacts": [
+      "Blank page with zero diagnostic. AC1.1 requires the page to mount 'without console errors' for the success case but says nothing about silent-mount failure; this is technically AC-compliant but is a hostile UX: the dev or e2e reviewer hitting the URL gets nothing actionable. Low because index.html is correct today and the regression risk is small."
+    ],
+    "evidence": "const root = document.getElementById('root');\nif (root) {\n  createRoot(root).render(<App deps={deps} />);\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-006"
+    ]
+  },
+  {
+    "cluster_id": "C007",
+    "title": "main.tsx reads import.meta.env via `as unknown as` cast instead of using Vite's typed env",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "13-15"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Add `src/vite-env.d.ts` containing `/// <reference types=\"vite/client\" />` and reference `import.meta.env.VITE_SUI_RPC_URL` directly. Even simpler: hardcode the localnet URL since this is dev-only and the contract pins it."
+    ],
+    "descriptions": [
+      "RPC_URL is computed via `(import.meta as unknown as { env?: { VITE_SUI_RPC_URL?: string } }).env?.VITE_SUI_RPC_URL ?? 'http://127.0.0.1:9000'`. Vite ships an `ImportMetaEnv` augmentation that makes `import.meta.env.VITE_SUI_RPC_URL` typed without any cast — just add a one-line `vite-env.d.ts` with `/// <reference types=\"vite/client\" />`. The double cast (`as unknown as`) is a code smell about types in general."
+    ],
+    "impacts": [
+      "Cosmetic + propagation: any future env var added the same way will repeat the cast pattern."
+    ],
+    "evidence": "const RPC_URL =\n  (import.meta as unknown as { env?: { VITE_SUI_RPC_URL?: string } }).env\n    ?.VITE_SUI_RPC_URL ?? 'http://127.0.0.1:9000';",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-008"
+    ]
+  },
+  {
+    "cluster_id": "C011",
+    "title": "computeMarketStats one-sided depth branch duplicates the two-sided loop body",
+    "file": "independent/01-market-stats/src/marketStats.ts",
+    "line_ranges": [
+      "78-105"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Extract `function depthAround(anchor: number, levels: {price:number, qty:number}[]): number`. Replace the three loop bodies with single calls."
+    ],
+    "descriptions": [
+      "The depth-summing logic appears three times: once in the two-sided branch (asks loop + bids loop within ±1% of mid) and twice more in the one-sided fallback (one for asks-only anchored on bestAsk, one for bids-only anchored on bestBid). Each is a six-line `for ... if (lvl.price >= lo && lvl.price <= hi) ...` loop. A single helper `sumDepthInWindow(levels, anchor)` would collapse the three sites to three one-liners."
+    ],
+    "impacts": [
+      "Limited. The three loops are correct today but the duplication makes the one-sided fallback semantics (anchor on the present side's best, not on a missing mid) less obvious — a reader has to compare three loop bodies to spot what differs."
+    ],
+    "evidence": "for (const lvl of askPrices) {\n      if (lvl.price >= lo && lvl.price <= hi) depthWithinOnePercent += lvl.qty;\n    }\n    for (const lvl of bidPrices) {\n      if (lvl.price >= lo && lvl.price <= hi) depthWithinOnePercent += lvl.qty;\n    }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-010"
+    ]
+  },
+  {
+    "cluster_id": "C014",
+    "title": "fetchFills loop has no upper bound on pagination; malformed RPC response could spin forever",
+    "file": "independent/01-market-stats/src/fillFetcher.ts",
+    "line_ranges": [
+      "54-69",
+      "55-63"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add a hard iteration cap (e.g. `for (let i = 0; i < 200; i++)`) and throw an explicit 'queryEvents pagination exceeded N pages without satisfying stop conditions' error if the cap is reached. Alternatively detect cursor-no-advance (`if (newCursor === oldCursor) break-throw`).",
+      "`if (!Array.isArray(response.data)) throw new Error('queryEvents returned non-array data field');` at the top of the loop body."
+    ],
+    "descriptions": [
+      "fetchFills uses `while (true)` with three break conditions: 50 fills collected, window crossed, or `!response.hasNextPage`. There is no maximum-iteration safety bound. If a buggy or misbehaving queryEvents implementation returns `hasNextPage: true` indefinitely while always returning data older-than-24h-but-not-quite (so neither MAX_FILLS nor crossedWindow ever fires) or returns the SAME cursor each iteration, fetchFills loops forever and the App's per-pool fetch hangs (which Promise.all then waits on indefinitely — App stays in 'loading' status and never errors out).",
+      "fetchFills assumes `response.data` is always an iterable array (`for (const ev of response.data)`). If the upstream queryEvents implementation ever returns `{ data: undefined, hasNextPage: false, nextCursor: null }` (which is a plausible JSON-RPC degraded-shape — and the dataLayer.rpc() helper would happily pass such a response through, see R3-011), the for...of loop throws `TypeError: response.data is not iterable`, which is then unhandled by fetchFills' caller (App.useEffect's try/catch will catch it, but the message will be the raw TypeError)."
+    ],
+    "impacts": [
+      "Hung loading state with no timeout. User sees 'Loading…' forever and has no signal that the data layer is stuck. Spec doesn't promise a fetch timeout, but the absence of any iteration cap turns 'misbehaving RPC' into 'infinite hang'.",
+      "Edge-case crash with a non-actionable error message. Unlikely in practice but a guard is one line."
+    ],
+    "evidence": "while (true) {\n    const response = await queryEvents({ packageId, poolId, cursor });\n    ...\n    if (collected.length >= MAX_FILLS) break;\n    if (crossedWindow) break;\n    if (!response.hasNextPage) break;\n    cursor = response.nextCursor;\n  }",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R3-015",
+      "R3-016"
+    ]
+  },
+  {
+    "cluster_id": "C019",
+    "title": "RunDataLayerArgs duplicates manifest typing inline instead of importing LoadedManifest",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "14-22"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Type the manifest argument as `DeploymentManifest` (raw JSON shape) or `LoadedManifest` (validated) — pick one, define it once, import everywhere."
+    ],
+    "descriptions": [
+      "RunDataLayerArgs.manifest is typed inline as `{ network?: ...; packages?: { deepbook?: { packageId?: string } }; pools?: Record<string, { poolId: string; baseCoinType: string; quoteCoinType: string }> }`, which is a slightly weaker version of DeploymentManifest already declared in types.ts and a slightly different version of what manifest.loadManifest returns (LoadedManifest). The same inline shape appears again in main.tsx's loadManifest stub."
+    ],
+    "impacts": [
+      "Three subtly different views of the same JSON structure live across the codebase. Each accepts inputs the others would reject (e.g. main.tsx tolerates missing packages.deepbook entirely; dataLayer treats it as optional then defaults to ''; manifest.loadManifest throws)."
+    ],
+    "evidence": "manifest: {\n    network?: { rpcUrl?: string };\n    packages?: { deepbook?: { packageId?: string } };\n    pools?: Record<string, { poolId: string; baseCoinType: string; quoteCoinType: string }>;\n  };",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-005"
+    ]
+  },
+  {
+    "cluster_id": "C027",
+    "title": "PoolCardData widens depthWithinOnePercent and volume24h to undefined while MarketStats keeps them required",
+    "file": "independent/01-market-stats/src/components/PoolCard.tsx",
+    "line_ranges": [
+      "16-25"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Tighten PoolCardData: `volume24h: number; depthWithinOnePercent: number;` to match the producer types. If a 'no data yet' state is desired, model it at the card level (e.g. the entire `data: PoolCardData | undefined` prop) rather than per-field. Once R2-003 is addressed and types live in types.ts, this kind of drift is structurally prevented."
+    ],
+    "descriptions": [
+      "PoolCardData declares `volume24h: number | undefined` and `depthWithinOnePercent: number | undefined`, but the upstream producer marketStats.MarketStats has `depthWithinOnePercent: number` (always defined, defaulting to 0) and the producer fillAggregator.FillAggregate has `volume24h: number` (also always defined). The card therefore handles a sentinel that the data layer cannot emit. Conversely, midPrice/spread/lastPrice are correctly typed as `number | undefined` on both sides — the inconsistency is just on the two always-defined fields."
+    ],
+    "impacts": [
+      "Type signatures lie about the contract. Maintenance noise: the formatter `fmt(value)` runs an `undefined` branch that is dead for these two fields. Less harmful than R2-001..R2-006, but it points at the same root cause — types were authored per-module without cross-module review."
+    ],
+    "evidence": "  volume24h: number | undefined;\n  lastPrice: number | undefined;\n  midPrice: number | undefined;\n  spread: number | undefined;\n  depthWithinOnePercent: number | undefined;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-007"
+    ]
+  },
+  {
+    "cluster_id": "C029",
+    "title": "PoolCard's fmt() guards against `null` after a TypeScript-narrowed `number | undefined`",
+    "file": "independent/01-market-stats/src/components/PoolCard.tsx",
+    "line_ranges": [
+      "29-34"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Drop the `value === null` check, or widen the parameter type to `number | null | undefined` if the data source ever produces null."
+    ],
+    "descriptions": [
+      "fmt(value: number | undefined) checks `value === undefined || value === null || !Number.isFinite(value)`. The `=== null` branch is unreachable: the parameter type is `number | undefined`, so TypeScript guarantees value is never null. Defensive code that the type system already covers adds noise and suggests the author didn't trust the types."
+    ],
+    "impacts": [
+      "Cosmetic. A reader pauses to wonder when null could appear and concludes 'never'."
+    ],
+    "evidence": "function fmt(value: number | undefined): string {\n  if (value === undefined || value === null || !Number.isFinite(value)) {\n    return SENTINEL;\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-007"
+    ]
+  },
+  {
+    "cluster_id": "C034",
+    "title": "aggregateFills coerces fill price/quantity via Number() with no NaN guard",
+    "file": "independent/01-market-stats/src/fillAggregator.ts",
+    "line_ranges": [
+      "32-46"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Guard each Number() call: `const q = Number(f.baseQuantity); if (Number.isFinite(q)) volume24h += q;` and similarly for price. Optional: count and surface a `malformedFills` integer in FillAggregate so the UI can show 'N/M trades unparseable'."
+    ],
+    "descriptions": [
+      "aggregateFills sums `Number(f.baseQuantity)` into `volume24h` and casts `Number(sorted[last].price)` for `lastPrice` without guarding against NaN. If a chain fill arrives with a malformed quantity or price string (chain-shape drift, missing field, BCS issue), the resulting NaN poisons the volume aggregate (NaN + N = NaN for the rest of the loop) and the lastPrice silently becomes NaN. PoolCard's `fmt` does guard against `!Number.isFinite(value)` and renders the sentinel, so the user gets '—' instead of a crash — but they get '—' for ALL fills in the day, not just the malformed one."
+    ],
+    "impacts": [
+      "Single bad fill record corrupts the whole day's volume. PoolCard sentinel masks the symptom — user sees '—' and assumes 'no trades' when the truth is 'one trade had a malformed quantity'. Low because the chain-shape capture is locked-in and field shapes are well-known, but this is a textbook silent-failure pattern: NaN propagation through aggregation."
+    ],
+    "evidence": "for (const f of sorted) {\n    if (nowMs - f.timestampMs <= DAY_MS) {\n      volume24h += Number(f.baseQuantity);\n    }\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-014"
+    ]
+  },
+  {
+    "cluster_id": "C035",
+    "title": "Two parallel DAY_MS constants in fillAggregator.ts and fillFetcher.ts",
+    "file": "independent/01-market-stats/src/fillAggregator.ts",
+    "line_ranges": [
+      "27"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Hoist DAY_MS into a small constants module or into types.ts and import from both places."
+    ],
+    "descriptions": [
+      "fillAggregator.ts and fillFetcher.ts both declare `const DAY_MS = 24 * 60 * 60 * 1000;` independently. Same value, same purpose (24h rolling window per AC1.5)."
+    ],
+    "impacts": [
+      "Trivial. If the rolling window ever changes (e.g. to 12h or 48h for testing), the two will silently disagree and the test suite covers each function in isolation so the inconsistency would not be caught."
+    ],
+    "evidence": "const DAY_MS = 24 * 60 * 60 * 1000;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-009"
+    ]
+  },
+  {
+    "cluster_id": "C039",
+    "title": "T-022 satisfied by any literal mention of 'chain-shape.md' regardless of derivation evidence",
+    "file": "independent/01-market-stats/tests/chainShape.test.ts",
+    "line_ranges": [
+      "84-97"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Either accept that T-022 is a sentinel marker test (and rename it to reflect that), or strengthen by requiring at least one `field-name`-level cross-reference between chain-shape.md and the type definitions (e.g. parse the markdown for backtick-quoted field names like `bids`, `asks`, `lot_size`, and assert each appears in src/types.ts or marketStats.ts)."
+    ],
+    "descriptions": [
+      "T-022 walks src/ and matches `/chain-shape\\.md/i` against any file content. A doc comment containing only `// see chain-shape.md` satisfies it without proving any type was actually derived from a captured shape. The contract's intent (AC1.6: types derived from captured shapes) is not exercised — a developer could leave a misleading comment over a hand-guessed type and pass."
+    ],
+    "impacts": [
+      "AC1.6 traceability is structurally satisfied but not semantically. Low impact because AC1.6 is paired with G-PoolShape gating and end-of-cycle inspection."
+    ],
+    "evidence": "if (/chain-shape\\.md/i.test(content)) {\n        referencingFile = f;\n        break;\n      }",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R5-005"
+    ]
+  },
+  {
+    "cluster_id": "C040",
+    "title": "T-013 third sub-test uses too-loose toBeGreaterThanOrEqual instead of toBe(50)",
+    "file": "independent/01-market-stats/tests/fillFetcher.test.ts",
+    "line_ranges": [
+      "120-139",
+      "84-118"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Change to `expect(result.length).toBe(50)` for clarity. The current `>=50` would silently accept an off-by-one or duplicate-collection bug that produced 60 fills.",
+      "Add `expect(result.length).toBe(6)` (5 from page 1 + 1 from page 2 inside-window fill) so the predicate isn't vacuous."
+    ],
+    "descriptions": [
+      "The 'first page already covers both stop conditions' sub-test asserts `expect(result.length).toBeGreaterThanOrEqual(50)`. An implementation that fetched the first page (50 fills) and then continued through more pages would still pass this assertion as long as it eventually returned ≥50. The earlier sub-test (line 76) catches over-pagination via the call count, but this assertion specifically should pin the cap exactly with `.toBe(50)` to align with `MAX_FILLS = 50` and the contract's '50-fill cap'.",
+      "The 24h-window stop sub-test asserts (a) every returned fill is within 24h and (b) only two pages were queried. It does NOT assert the in-window fills count or content. An implementation that returned `[]` (collected nothing, then bailed) would trivially satisfy 'every f is within 24h' (vacuously) and the call count (it could still issue two queries). The vacuous-truth hole is small but real."
+    ],
+    "impacts": [
+      "Low: the sibling assertion `responder).toHaveBeenCalledTimes(1)` already locks down pagination behavior. The looseness is purely on result-length specificity.",
+      "An aggressive early-bail bug that stops after page 1 with empty `collected` would pass: forEach over [] doesn't fail the in-window predicate, and the responder would still get 1-2 calls depending on logic. Test does not pin a minimum result length."
+    ],
+    "evidence": "expect(result.length).toBeGreaterThanOrEqual(50);\n    expect(responder).toHaveBeenCalledTimes(1);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-006",
+      "R5-008"
+    ]
+  },
+  {
+    "cluster_id": "C041",
+    "title": "T-011 sparse sparkline: no assertion that values mirror input fills",
+    "file": "independent/01-market-stats/tests/fillAggregator.test.ts",
+    "line_ranges": [
+      "98-115"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Add `expect(result.sparkline.map(p => p.price)).toEqual([100, 101, 102])` and an analogous timestamp check. This costs one line and meaningfully strengthens the sparse-input behavior gate."
+    ],
+    "descriptions": [
+      "T-011 asserts the sparkline length equals input length (3) and that each entry has finite numeric `price` and a `timestampMs` of type number. It never asserts the sparkline's prices/timestamps actually match the input fills (100, 101, 102). An implementation that returned `[{timestampMs: 0, price: 1}, {timestampMs: 0, price: 1}, {timestampMs: 0, price: 1}]` for any sparse input would pass."
+    ],
+    "impacts": [
+      "Sparse case behavior is undertested. The expressed intent ('consumer can render it without padding') is checked, but the implicit intent (the sparkline reflects the fills it was given) is not."
+    ],
+    "evidence": "expect(result.sparkline).toHaveLength(fills.length);\n    // No padding — the consumer must be able to render a 3-point sparkline\n    // without a NaN, undefined, or zero-quantity placeholder slipping in.\n    for (const p of result.sparkline) {\n      expect(typeof p.price).toBe('number');",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-007"
+    ]
+  },
+  {
+    "cluster_id": "C028",
+    "title": "PoolCard fmt uses String(value) instead of toLocaleString/toFixed; fine numeric values render as 1.234e-7",
+    "file": "independent/01-market-stats/src/components/PoolCard.tsx",
+    "line_ranges": [
+      "29-34"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Mirror the sparkline approach: `value.toLocaleString(undefined, { maximumFractionDigits: 6 })` or pin `toFixed(N)` per field per the stat's natural scale."
+    ],
+    "descriptions": [
+      "Not strictly an error-handling defect, but adjacent: `fmt` returns `String(value)` for finite numbers, which produces JavaScript's default toString — including scientific notation for very small or very large values. The sparkline branch correctly uses `p.price.toFixed(4)`, but the six other fields don't. A genuine but tiny mid-price (e.g. 0.0000000123) would render as '1.23e-8', which a non-technical user might misread as the sentinel or as a broken value. This only matters because the data layer is currently stubbed to return zeros, so the issue is hidden — but it'll surface once R3-005 is fixed."
+    ],
+    "impacts": [
+      "Cosmetic now, latent UX bug after data layer is wired. Not load-bearing for any AC."
+    ],
+    "evidence": "function fmt(value: number | undefined): string {\n  if (value === undefined || value === null || !Number.isFinite(value)) {\n    return SENTINEL;\n  }\n  return String(value);\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-017"
+    ]
+  },
+  {
+    "cluster_id": "C032",
+    "title": "App's status:'loading'|'ready'|'error' state machine could be derived",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "16-46"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Optional: collapse to derived state, or leave as-is. Either is defensible. The bigger LOC sink is dead modules (R4-001, R4-002), not this state shape."
+    ],
+    "descriptions": [
+      "AppState has three explicit statuses but the same information is encoded by `cards`/`error` presence: error set => error UI; cards populated => ready; otherwise loading. A single `cards: PoolCardData[] | undefined` plus `error: string | undefined` would suffice. With React 19 available the spec mentions Suspense as a more idiomatic alternative."
+    ],
+    "impacts": [
+      "None functionally — three-state union is fine and arguably clearer. Flagging as info because the contract sized this cycle at ~200-300 LOC and ended at ~600; minor state-modeling savings here would chip away at that."
+    ],
+    "evidence": "interface AppState {\n  status: 'loading' | 'ready' | 'error';\n  cards: PoolCardData[];\n  error?: string;\n}",
+    "confidence_spread": [
+      "low"
+    ],
+    "source_ids": [
+      "R4-011"
+    ]
+  },
+  {
+    "cluster_id": "C036",
+    "title": "Cycle deliverable is ~600 LOC vs spec envelope of 200-300 LOC TS",
+    "file": "independent/01-market-stats/src/",
+    "line_ranges": [
+      "1-603"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Use the consolidated review to decide whether the LOC overshoot is bought-and-paid-for (chain-shape correctness) or accidental (the duplications above). My read is ~70/30 in favor of accidental."
+    ],
+    "descriptions": [
+      "Total src LOC across the nine TS/TSX files is 603 (wc -l). The contract's stack pins section and the simplicity envelope referenced for this cycle anticipated ~200-300 LOC for a single-route React + Vite shell. Roughly half of the excess is justified by the chain-shape complexity (u128 order-id decoding alone is real work). The other half is duplication and dead-wiring identified in R4-001, R4-002, R4-003, R4-004."
+    ],
+    "impacts": [
+      "If R4-001/002/003/004 are addressed (delete types.ts, wire dataLayer to compute, drop main.tsx voids, dedupe shared types), the deliverable shrinks toward the envelope without losing behavior."
+    ],
+    "evidence": "wc -l src/*.ts src/*.tsx src/components/*.tsx → 603 total",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R4-012"
+    ]
+  }
+]

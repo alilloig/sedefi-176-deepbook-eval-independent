@@ -1,0 +1,1632 @@
+[
+  {
+    "cluster_id": "C001",
+    "title": "Iter-3 price-injection breaks ASK side: high bit (bit 127) not stripped before >>64",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "210-216"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "critical",
+    "min_severity": "critical",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Replace `Number(BigInt(orderIdStr) >> 64n)` with `Number((BigInt(orderIdStr) & ((1n << 127n) - 1n)) >> 64n)` to strip the ask high bit before extracting the upper-64 price. Add a regression test that constructs an ask Order using `makeAskOrderId(948n, 1n)` (from marketStats.test.ts), passes it through traverseBigVector's logic (extract via a small unit-testable helper), and asserts the injected price is 948 — not 9.22e18. The captured chain-shape.md sample (order_id 170141183460486719245069180370816077150, expected price 948000) is the canonical regression fixture. Optional: also assert `price < 10**15` defensively and fall through to undefined if not, so the next encoding drift crashes the card loudly rather than silently rendering 4.6e18."
+    ],
+    "descriptions": [
+      "The iter-3 patch sets Order.price = Number(BigInt(orderIdStr) >> 64n) for every order, then computeMarketStats prefers o.price over the decode fallback. This decode is correct for bids (high bit clear) but wrong for asks: chain-shape.md's captured Order has order_id '170141183460486719245069180370816077150' with bit 127 set (per the convention 'asks the encoding is monotonically increasing'); decoding gives 170141183460486719245069180370816077150n >> 64n = 9223372036855723808n ≈ 9.22e18, NOT the real price 948000. Verified empirically against the captured Order in chain-shape.md line 129. The previous decodeAskPrice (id & (ASK_BIT-1n)) >> 64n correctly produced 948000 by stripping the high bit first; iter-3 silently bypasses that fallback by always populating price with the broken value (still finite, still passes the `if (!Number.isFinite(price)) price = undefined` guard). Net effect: bestAsk = ~9.22e18 on every real-chain card, midPrice = (~9.22e18 + bidPrice)/2 ≈ ~4.6e18, AC1.4's bestBid<=mid<=bestAsk technically holds but mid is astronomically wrong, depth at +/-1% from a ~4.6e18 mid sums to 0 (no real level lies in [4.55e18, 4.65e18]). This is a strict regression vs iter-2: iter-2 broke bids and asks worked; iter-3 'fixes' bids and now breaks asks. The CR-2 cluster is not closed; it has migrated."
+    ],
+    "impacts": [
+      "AC1.4 invariant trivially holds but mid/spread/depth values are nonsense once any ask exists on the sandbox. Tests pass tautologically because marketStats.test.ts never injects price (it tests the fallback path) and networkShape.test.ts (T-014) returns empty BigVector dynamic-field lists so traverseBigVector returns [] before hitting the new code. The fix looks complete to the test gate but is broken on real chain data — the same 'load-bearing fix is untriggered by tests' shape iter-2 R1-001 called out, with the failure mode now on the OTHER side of the book."
+    ],
+    "evidence": "      const orderIdStr = String(orderFields['order_id'] ?? keys[i] ?? '0');\n      let price: number | undefined;\n      try {\n        price = Number(BigInt(orderIdStr) >> 64n);\n        if (!Number.isFinite(price)) price = undefined;\n      } catch {\n        price = undefined;\n      }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-001"
+    ]
+  },
+  {
+    "cluster_id": "C027",
+    "title": "main.tsx still mutates deps after construction; module-level cachedPackageId persists",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "32-69",
+      "62-69"
+    ],
+    "agreement_count": 3,
+    "reviewers": [
+      2,
+      3,
+      4
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": true,
+    "categories": [
+      "design",
+      "error-handling",
+      "simplicity"
+    ],
+    "recommendations": [
+      "Construct the deps as a single object whose closures share a memoized manifest promise: `const manifestPromise = (async () => parseManifest(await (await fetch(MANIFEST_URL)).json(), MANIFEST_URL))(); const deps: AppDeps = { loadManifest: () => manifestPromise, fetchPoolStats: async (d) => fetchSinglePoolStats(RPC_URL, (await manifestPromise).deepbookPackageId, d, Date.now()) };`. No mutation, no module-level let, the dependency is a cached promise. Same fix as iter-2 R2-001.",
+      "Either thread packageId through the descriptor (extend PoolDescriptor to include packageId, populated in loadManifest) or hold the manifest in a Promise and await it inside fetchPoolStats.",
+      "Same as iter-2: either build deps after computing both halves, or refactor App.tsx so fetchPoolStats receives the LoadedManifest as a second arg. iter-3's narrow scope didn't include this, but the iter-2 unfixed status persists."
+    ],
+    "descriptions": [
+      "Iter-2 R2-001 (high) flagged that main.tsx builds AppDeps then mutates `deps.loadManifest` to wrap a module-level `let cachedPackageId` so fetchPoolStats can later read it. Iter-3 left this entirely unchanged. The wiring still depends on the runtime invariant 'loadManifest must resolve before any fetchPoolStats call'; nothing in the type system encodes that. fetchPoolStats called first silently fetches against packageId='' (suix_queryEvents will reject the empty package or return no events), and the App will render 'no fills' rather than an error.",
+      "Iter-2/iter-3 NOT FIXED (R3-020 carry-over). main.tsx threads packageId from manifest to fetchPoolStats via a module-level `let cachedPackageId = ''`. The override of deps.loadManifest assigns cachedPackageId AFTER the original loadManifest resolves. App.tsx's useEffect awaits loadManifest before calling fetchPoolStats, so the happy path is fine — but the design is fragile: the iter-2 setInterval refresh effect (line 94) calls deps.fetchPoolStats directly without re-checking that loadManifest already resolved. Any future refactor that triggers fetchPoolStats outside the initial-load gate will silently pass packageId='' to the data layer.",
+      "Iter-3 did not touch main.tsx. The `let cachedPackageId = ''` + `_origLoadManifest` reassignment + post-construction mutation of deps.loadManifest is byte-for-byte the iter-2 shape. The closure-over-let trap and the load-order requirement (loadManifest MUST run before any fetchPoolStats or packageId is empty string) are still present."
+    ],
+    "impacts": [
+      "Same as iter-2: the dependency-injection contract is violated by a side-effect through a closed-over module-level mutable. With iter-3's price-injection now landing inside the fetchPoolStats call path, any future ordering bug becomes harder to detect because both the manifest load AND the price decoding now silently degrade together. Reassigning a property on the deps the App will receive is a React-foreign idiom and a documented antipattern in DI systems where deps are a read-only contract.",
+      "Latent fragility, no current bug. The mutation pattern is non-obvious; a code reader might call fetchPoolStats from a new entry point and not realise the cache must be primed first.",
+      "Same as iter-2 R4-003: subtle correctness landmine + 3-pass reading required. The fact that iter-3 was a precisely-scoped 1-line patch means nothing about main.tsx changed — but this was an iter-2 high finding that simply wasn't picked up. Carrying it forward so the consolidator can decide whether to re-flag or accept."
+    ],
+    "evidence": "let cachedPackageId = '';\nconst _origLoadManifest = deps.loadManifest;\ndeps.loadManifest = async () => {\n  const manifest = await _origLoadManifest();\n  cachedPackageId = manifest.deepbookPackageId;\n  return manifest;\n};",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R2-002",
+      "R3-020",
+      "R4-004"
+    ]
+  },
+  {
+    "cluster_id": "C002",
+    "title": "fetchPoolStats silently degrades to empty book on malformed RPC response (iter-2 R1-002 unaddressed)",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "104-153, 233-267, 338-351",
+      "104-153"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "high",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Add `if (!response.ok) throw new Error(\\`${method} HTTP ${response.status}: ${await response.text()}\\`)` between fetch and json() in rpc(). In resolvePoolInnerFields and buildPoolInnerState, throw an actionable error when expected fields are absent rather than returning a degraded shape. App.tsx's allSettled banner already handles propagated errors.",
+      "Promote the chain-shape.md Step 1-3 captures to JSON fixtures under tests/fixtures/. Add a test that primes the fetch spy with the real Versioned wrapper shape and asserts (a) buildPoolInnerState extracts asks/bids BigVector ids correctly and (b) traverseBigVector populates Order.price correctly for both an ask Order (high bit set, expected price=948000) and a bid Order (high bit clear, expected price=671000) — using the captured order_ids from chain-shape.md as fixture inputs."
+    ],
+    "descriptions": [
+      "Iter-2 finding carried forward unchanged. resolvePoolInnerFields returns null silently when sui_getObject's content.fields is missing/null (extractFields → null) and several intermediate cases (no inner field, no versioned id, empty dynamic-fields, no wrapperFields) `return fields` (degraded) or `return null` without surfacing the failure. fetchPoolStats then constructs a default-empty PoolInnerState (line 350) and computeMarketStats yields all-undefined card stats — visually indistinguishable from 'pool is genuinely idle'. Iter-3 did not touch this. rpc() (line 56) still calls response.json() without checking response.ok; a 502/503 from the RPC during sandbox restart parses HTML as JSON and throws SyntaxError that reaches the per-pool error banner verbatim ('Unexpected token <').",
+      "Iter-2 finding carried forward unchanged. resolvePoolInnerFields has two cases: (1) the response already has a 'book' field — return directly (T-014 fixture path); (2) Pool wrapper → Versioned dynamic field → PoolInner field-wrapper traversal — the only path that runs against the real sandbox. The T-014 fixture in networkShape.test.ts always returns case (1) (it stubs sui_getObject with a `content.fields.book` shape and stubs suix_getDynamicFields with `data: []`), so case (2) — including the wrapperFields['value']?.['fields'] unwrap shape derived from chain-shape.md Step 3 — has zero test coverage. Iter-3 did not add coverage. Note: this is the same blind spot that masked the iter-3 R1-001 ask-bit defect — T-014 returns empty dynamic-field arrays, so the new price-injection code path is also unexercised."
+    ],
+    "impacts": [
+      "Operators cannot distinguish 'idle market' from 'shape parse failure' from 'sandbox restarted with new package shape'. Same silent-failure pattern as the iter-1 CR-1 cluster, partially carried forward.",
+      "Production-only data path (case 2 traversal + traverseBigVector with non-empty slices) has zero unit-test coverage. A Sui RPC drift in the value-shape unwrap, or in dynamic-field response shape, would silently produce empty books with no actionable signal AND silently mask further injection bugs."
+    ],
+    "evidence": "  if (innerFields) {\n    poolState = await buildPoolInnerState(rpcUrl, descriptor.poolId, innerFields);\n  } else {\n    poolState = { pool_id: descriptor.poolId, book: { asks: [], bids: [], lot_size: '0', min_size: '0', tick_size: '0' } };\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-002",
+      "R1-003"
+    ]
+  },
+  {
+    "cluster_id": "C009",
+    "title": "iter-3 price injection uses naive >>64n; bid prices come out inverted (still wrong)",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "204-216"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Either (a) import decodeAskPrice/decodeBidPrice from marketStats.ts and call the correct one based on order_id's high bit, or (b) inline the correct math: `const id = BigInt(orderIdStr); const isAsk = (id >> 127n) === 1n; const raw = (id & ((1n<<127n)-1n)) >> 64n; price = isAsk ? Number(raw) : Number(((1n<<64n)-1n) - raw);`. Test the patched function against the actual bid example from chain-shape.md (`18446744073709548345`) — current code returns 0, correct code returns U64_MAX-0 inverted appropriately."
+    ],
+    "descriptions": [
+      "Iter-3 added `price = Number(BigInt(orderIdStr) >> 64n)` claiming this 'Holds for both bids and asks in DeepBook v3.' That claim contradicts the project's own chain-shape.md (lines 137-145), which states: 'For asks the encoding is monotonically increasing in price; for bids it is decreasing (inverted price)'. The patch performs only a right-shift; it does NOT invert for bids, and it does NOT mask off bit 63 of the shifted result for asks (the ask flag bit becomes the high bit of the shifted u64 → ~9.22e18 dominates the Number cast). Net effect: every bid carries a fabricated huge or zero price, every ask carries (price | 2^63). computeMarketStats then sorts bids by these fabricated values and the 'best bid' is the bid whose order_id had the LOWEST price (i.e. truly the WORST bid), and best ask is whichever ask happens to sort first by askBit-poisoned values."
+    ],
+    "impacts": [
+      "R3-014 (iter-2) is NOT fixed; it has been replaced by a different equally-silent garbage path. Mid-price = (worstBid + askWithFlagBit) / 2 — the user sees a giant scientific-notation number that looks like data. AC1.4's bestBid <= mid <= bestAsk invariant holds only because both sides are corrupted in the same direction. The synthesis-notes' claim 'production reads the correct chain price instead of falling through to decodeBidPrice' is false. iter-3 should have been a 1-line wrapper around the EXISTING decodeAskPrice/decodeBidPrice helpers in marketStats.ts (which already do the bit-masking and inversion correctly) — instead it duplicated and inlined a wrong version of the math."
+    ],
+    "evidence": "      // Inject price from order_id high 64 bits, per chain-shape.md:\n      //   \"price is the upper 64 bits; the lower 64 bits are an order-counter\n      //    disambiguator.\" Holds for both bids and asks in DeepBook v3.\n      // This injection lets computeMarketStats prefer the real chain price\n      // over the fixture-shaped decodeBidPrice fallback (CR-2 wire-up).\n      const orderIdStr = String(orderFields['order_id'] ?? keys[i] ?? '0');\n      let price: number | undefined;\n      try {\n        price = Number(BigInt(orderIdStr) >> 64n);\n        if (!Number.isFinite(price)) price = undefined;\n      } catch {\n        price = undefined;\n      }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-001"
+    ]
+  },
+  {
+    "cluster_id": "C012",
+    "title": "resolvePoolInnerFields null path silently fabricates an empty book",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "344-351"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Either throw with an actionable message ('Pool ${descriptor.poolId} inner state unreadable — wrapper shape mismatch or object missing') so the per-pool error banner fires, or attach a `dataState: 'ok' | 'partial' | 'empty' | 'error'` field to PoolCardData so the UI can distinguish 'genuinely empty' from 'failed to read'."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-016 carry-over). fetchPoolStats checks `if (innerFields)` and on null falls through to `poolState = { pool_id: descriptor.poolId, book: { asks: [], bids: [], lot_size: '0', min_size: '0', tick_size: '0' } }` — a hardcoded empty book with NO error, NO log, NO signal. resolvePoolInnerFields returns null in TWO places (lines 113-114 missing fields, 144 missing wrapper) — distinct failure modes (object deleted, wrong objectId, dynamic-field traversal failure) the user has zero visibility into. The empty-book result then flows through computeMarketStats producing mid/spread/depth all undefined — rendering '—' for every metric — identical to either an idle pool or a successfully-read empty pool."
+    ],
+    "impacts": [
+      "Same silent-empty pattern as R3-015 but at the outer level. A pool object that exists but is mid-upgrade, has been deleted, or whose wrapper shape has drifted produces '—' across the board with no operator-visible distinction from 'no orders on book'. AC1.1 'inline error UI' is bypassed entirely for this path. The dev WROTE the fallback knowing the fields might be missing, but never decided what the user should see."
+    ],
+    "evidence": "  let poolState: PoolInnerState;\n  if (innerFields) {\n    poolState = await buildPoolInnerState(rpcUrl, descriptor.poolId, innerFields);\n  } else {\n    poolState = { pool_id: descriptor.poolId, book: { asks: [], bids: [], lot_size: '0', min_size: '0', tick_size: '0' } };\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-016"
+    ]
+  },
+  {
+    "cluster_id": "C015",
+    "title": "iter-3 patch is locally-scoped and does not introduce structural complexity beyond the smells already noted",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "204-216",
+      "210-216",
+      "204-208",
+      "196-224"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "high",
+    "min_severity": "info",
+    "disputed_severity": true,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Delete the inline price math. Move decodeAskPrice/decodeBidPrice to a small priceDecode.ts (or export them from marketStats.ts), import in dataLayer.ts, and call the right one based on whether the BigVector being traversed is asks or bids. traverseBigVector already knows which side it is — the caller buildPoolInnerState passes asksId vs bidsId distinctly; thread that signal through as a side parameter. Alternatively: drop price injection entirely from traverseBigVector and let computeMarketStats keep doing the decode (the iter-2 design that simplicity-favored).",
+      "Drop the try/catch. If defensive coverage is genuinely wanted, fold it into the decode helper itself so traverseBigVector reads as `price: decodePrice(orderIdStr, side)`. The current shape is a 7-line block doing what should be a 1-line property assignment.",
+      "Trim to a single line: `// Decode price per chain-shape.md (asks: high-bit + price<<64; bids: inverted).` Then have the actual code call decodeAskPrice or decodeBidPrice from marketStats.ts (per R4-001 / R4-008).",
+      "No action on the scope. See R4-001 for the implementation-style fix."
+    ],
+    "descriptions": [
+      "The iter-3 fix inlines a price computation `Number(BigInt(orderIdStr) >> 64n)` directly inside traverseBigVector. marketStats.ts already exports two functions for exactly this — decodeAskPrice (which masks the high bit and shifts) and decodeBidPrice (which inverts via U64_MAX). The patch picks neither; it does a third, simpler bit shift that ignores the bid/ask asymmetry the rest of the codebase carefully handles. The comment claims `Holds for both bids and asks in DeepBook v3`, but chain-shape.md:138-139 explicitly says `for bids it's decreasing (inverted price)`, and the in-repo decodeBidPrice agrees. Three implementations of one concept now coexist (two correct-but-different, one inline-and-wrong-for-bids), and the inline one is the only path production takes.",
+      "The synthesis notes describe iter-3 as a 'one-line CR-2 wire-up'. The actual patch is 7 lines: declaration, try, BigInt+shift, finite-check, catch, undefined-assign, close-brace. The try/catch guards two failure modes — non-numeric orderIdStr (BigInt throws) and overflow (Number returns Infinity). Both are vanishingly unlikely on real chain data (order_ids are always valid u128 decimals; the upper-64 shift produces a value <= U64_MAX which Number always represents finitely as a float). Defensible as belt-and-suspenders, but the chunky shape signals the author wasn't sure which failure mode the catch was for.",
+      "The 5-line block comment explaining the price injection (`// Inject price from order_id high 64 bits, per chain-shape.md: ... Holds for both bids and asks in DeepBook v3 ... CR-2 wire-up`) is longer than the 7-line code block it precedes (which itself is over-long per R4-008). The comment also says something that contradicts both chain-shape.md:138-139 ('for bids it's decreasing (inverted price)') and marketStats.ts:40-44 (decodeBidPrice does the inverted decode). When code and a comment disagree, code wins, but the comment seeds a false invariant for the next maintainer.",
+      "Crediting what iter-3 got right from a simplicity lens: the patch did NOT introduce a new module, did NOT add a new public API, did NOT touch tests, and did NOT change the orchestration shape. The +14 LOC delta is concentrated in one function (traverseBigVector). Compared to e.g. an alternative design that introduces an OrderInfo-event-correlation layer to source price from events instead of order_id bits, this is the lower-LOC choice. The simplicity issues flagged in R4-001/R4-008/R4-009 are all about HOW the price was wired, not WHETHER to wire it."
+    ],
+    "impacts": [
+      "Simplicity smell with a correctness consequence the consolidator should hear about: bid-side prices in production will be the raw inverted-encoded value (~1.8e19) instead of the actual price. Even setting correctness aside, the maintenance surface is now THREE bit-decode sites that drift independently. A future change to the encoding (or a re-derivation from a chain-shape.md re-capture) has to be applied in three files, with two of them being private helpers in different modules.",
+      "Tiny. Reading cost only. Combined with R4-001 (the inline math should be a function call), the cleaner shape would be a single line: `price: orderIdSide === 'ask' ? decodeAskPrice(orderIdStr) : decodeBidPrice(orderIdStr)`.",
+      "Low for simplicity (comment volume). Medium for the false-invariant claim, but that's correctness territory; flagging here as a simplicity issue because the simpler fix is to delete the misleading sentence rather than verify the encoding claim.",
+      "None — informational. Helps the consolidator triage R4-001 vs the broader R4-002 LOC overshoot: the price-wiring concept itself is well-scoped, the implementation just happens to redo bit-decode that already exists in the codebase."
+    ],
+    "evidence": "// Inject price from order_id high 64 bits, per chain-shape.md:\n      //   \"price is the upper 64 bits; the lower 64 bits are an order-counter\n      //    disambiguator.\" Holds for both bids and asks in DeepBook v3.\n      // This injection lets computeMarketStats prefer the real chain price\n      // over the fixture-shaped decodeBidPrice fallback (CR-2 wire-up).",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-001",
+      "R4-008",
+      "R4-009",
+      "R4-012"
+    ]
+  },
+  {
+    "cluster_id": "C017",
+    "title": "iter-3 Order.price injection added in dataLayer but exercised by zero tests",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "196-224"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Tests are sealed for this cycle. File this as a blocking gap for the next cycle: add a dataLayer integration test where the suix_getDynamicFields fixture returns a non-empty slice list AND the sui_getObject for that slice returns a Slice<Order> shape with at least one entry whose order_id is `(1<<127) | (1010<<64) | 1`. Assert the resulting Order.price equals 1010 (not ~9.22e18). The same test should cover a bid with order_id `((U64_MAX - 990) << 64) | 1` and assert price equals 990 (not U64_MAX-990)."
+    ],
+    "descriptions": [
+      "Iter-3's 1-line patch (actually a ~12-line block at 204-216) adds price-decode injection inside traverseBigVector. The intent — surfacing R5-010's wiring gap — is met at the implementation level: production now sets Order.price for every traversed slice entry. But no test ever enters traverseBigVector. T-014 (networkShape.test.ts:101-110) returns a 'leaf' PoolInner shape where book.asks/book.bids each carry id '0xfakeasks'/'0xfakebids' AND length '0', root_id '0' — and the suix_getDynamicFields stub returns `{ data: [], nextCursor: null, hasNextPage: false }` (line 115). buildPoolInnerState at line 252-255 calls traverseBigVector only when asksId/bidsId is truthy (it is — '0xfakeasks' is truthy), but traverseBigVector immediately returns `[]` at line 168 because `sliceList.data.length === 0`. The new injection code at lines 196-224 is therefore unreachable from any test. Consequently the iter-3 patch could be a no-op, could throw on every order_id, could compute wildly wrong prices, and every test would still pass."
+    ],
+    "impacts": [
+      "The iter-2 R5-010 high-severity finding (Order.price not wired) is structurally addressed in production code but the closure of the gap is not verified by any test. A future regression that disables the injection (e.g. someone removes the price field assignment during a refactor) would ship green. More urgently — the iter-3 formula `BigInt(orderIdStr) >> 64n` is uniformly applied to both asks and bids, but ask order_ids have the high bit set (1<<127), so for any real ask the injected price will be ~9.22e18 + actualPrice. There is zero test that constructs a real-shape ask order_id and asserts the injected price equals the encoded price. Production users will see ~9.22e18 prices on every ask card."
+    ],
+    "evidence": "for (let i = 0; i < Math.min(keys.length, vals.length); i++) {\n      const orderFields =\n        ((vals[i] as Record<string, unknown> | undefined)?.['fields'] as\n          | Record<string, unknown>\n          | undefined) ?? (vals[i] as Record<string, unknown>);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-001"
+    ]
+  },
+  {
+    "cluster_id": "C022",
+    "title": "30s sparkline refresh still untested (R5-004 from iter-2 carries forward unchanged)",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "89-125"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Same as iter-2. Tests are sealed. Acknowledge as a gap that should have escalated to E-001 E2E coverage."
+    ],
+    "descriptions": [
+      "Iter-3 did not address this. App.tsx still has the setInterval(REFRESH_INTERVAL_MS=20_000) polling effect; tests still do not use vi.useFakeTimers() or assert fetchPoolStats is called more than once after mount. The interval runs ONLY when state.status === 'ready' (early-return at line 92), so a bug that left state in 'loading' would silently disable polling forever."
+    ],
+    "impacts": [
+      "AC1.3 freshness has zero executable enforcement. A wrong interval, missing useEffect dep, swapped state check, or missed cleanup leak ships green."
+    ],
+    "evidence": "const intervalId = setInterval(async () => {\n      const pools = manifestPoolsRef.current;\n      if (pools.length === 0) return;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-005"
+    ]
+  },
+  {
+    "cluster_id": "C023",
+    "title": "Cross-pool event throughput unbounded; fetchFills can paginate forever on busy sandbox (iter-2 R1-007 unaddressed)",
+    "file": "independent/01-market-stats/src/fillFetcher.ts",
+    "line_ranges": [
+      "62-85"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Add a hard pagination ceiling (e.g. MAX_PAGES = 20) to fillFetcher and surface a one-line warning on hit. Or restructure to issue one suix_queryEvents per refresh and demultiplex events to all pools in a single pass instead of N queries per N pools."
+    ],
+    "descriptions": [
+      "Iter-2 finding carried forward unchanged. buildQueryEventsFn issues suix_queryEvents with MoveModule filter on `module: 'pool'` (correctly per chain-shape.md friction note), which returns events from ALL pools in the package. fillFetcher demultiplexes via `if (ev.poolId !== poolId) continue;` (good), but the page-cap stop conditions (`collected.length >= MAX_FILLS` or `crossedWindow`) only trigger on OUR pool's events. If our target pool is sparse and competing pools are busy, every 50-event page may yield 0 of our events, and fillFetcher paginates until hasNextPage:false — which on a continuously-active sandbox may be effectively never. The 20s refresh tick can be exceeded. Iter-3 did not address this."
+    ],
+    "impacts": [
+      "Under sandbox event contention, a single fetchFills invocation can issue hundreds of RPC calls and exceed the 20s refresh interval, compounding with R1-004 to overwrite fresh state with very stale data."
+    ],
+    "evidence": "const result = await rpc<QueryEventsResult>(rpcUrl, 'suix_queryEvents', [\n      { MoveModule: { package: packageId, module: 'pool' } },\n      cursor,\n      50,\n      true, // descending (newest first)\n    ]);",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R1-005"
+    ]
+  },
+  {
+    "cluster_id": "C030",
+    "title": "main.tsx production fetch path still uncovered (R5-001 from iter-2 carries forward unchanged)",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "30-69"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Restructure main.tsx as a small bootstrap() factory exported and tested with vi.fn() for fetch, OR add an integration smoke test that mounts the full app under jsdom with a fetch spy returning a fixture manifest. Same recommendation as iter-2."
+    ],
+    "descriptions": [
+      "Iter-3 only patched dataLayer.ts. main.tsx is unchanged from iter-2 and still combines manifest fetch + parseManifest + cachedPackageId closure + _origLoadManifest wrapper + createRoot mount with zero tests. T-014 still drives runDataLayer (a sibling entry point); production drives fetchSinglePoolStats per-pool through deps.fetchPoolStats. Wrong manifest URL, missing await, swapped order of wrapper assignment that leaves cachedPackageId as '' at first call, missing root element handling all ship green."
+    ],
+    "impacts": [
+      "AC1.1/AC1.2 integration glue is unverified. The iter-3 fix did not touch this gap."
+    ],
+    "evidence": "let cachedPackageId = '';\nconst _origLoadManifest = deps.loadManifest;\ndeps.loadManifest = async () => {\n  const manifest = await _origLoadManifest();\n  cachedPackageId = manifest.deepbookPackageId;\n  return manifest;\n};",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-004"
+    ]
+  },
+  {
+    "cluster_id": "C031",
+    "title": "Iter-3 price injection diverges from companion-event design; comments stale",
+    "file": "independent/01-market-stats/src/marketStats.ts",
+    "line_ranges": [
+      "46-57"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Either (1) align comments to reality: rewrite the marketStats.ts:53-54 and types.ts:72 doc-comments to say 'Injected by the data layer from order_id high 64 bits'; delete the marketStats.decodeBidPrice and decodeAskPrice fallbacks since the injected price is now always populated when orders come from the chain; or (2) actually do the OrderInfo→Order join the docs describe (cross-reference Order.order_id with OrderInfo.order_id captured by buildQueryEventsFn) and remove the bit-shift. Option (1) is the smaller change; option (2) is what the comments currently promise."
+    ],
+    "descriptions": [
+      "Iter-3 wires Order.price in dataLayer.ts:209-216 by shifting orderIdStr right 64 bits ('price is the upper 64 bits' per the inline comment). But marketStats.ts:53-54 still reads 'For bids, the order_id decode is tautologically correct against test fixtures but wrong against real chain order_ids. Prefer injected price.' implying the injected price comes from a companion OrderInfo/OrderPlaced event — and types.ts:72 doubles down ('Injected from companion OrderInfo/OrderPlaced event. Preferred over order_id decode.'). In reality the injection is just another order_id decode using the same input as decodeBidPrice/decodeAskPrice; the data layer never joins against event payloads. So three formulae now claim to decode 'price from order_id': dataLayer's `BigInt(id) >> 64n`, marketStats.decodeAskPrice's `(id & (ASK_BIT_OFFSET-1n)) / PRICE_BIT_OFFSET`, and marketStats.decodeBidPrice's `U64_MAX - id / PRICE_BIT_OFFSET`. Either (a) all three are equivalent on chain inputs and two are dead, or (b) they disagree and the test suite cannot tell because it never feeds a real chain order_id through both paths."
+    ],
+    "impacts": [
+      "Reader cannot determine the canonical decoding rule from the source. The 'CR-2 fix' comment in dataLayer.ts:208 promises the injected path replaces the fixture-shaped decode, but the documentation in marketStats.ts and types.ts both promise the injection comes from event data — neither matches what was implemented. A future maintainer fixing the bid encoding (the original CR-2 bug) will read the comments, look for OrderInfo→Order plumbing, find none, and either rewrite the wrong layer or add a redundant join. The doc/code drift recreates the original confusion the iter-2 review surfaced."
+    ],
+    "evidence": "    // For bids, the order_id decode is tautologically correct against test\n    // fixtures but wrong against real chain order_ids. Prefer injected price.\n    price: o.price !== undefined ? o.price : decodeBidPrice(o.order_id),",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-001"
+    ]
+  },
+  {
+    "cluster_id": "C041",
+    "title": "iter-2 R4-001 still applies — LOC now 1225 (was 1211), still ~4-6x spec envelope",
+    "file": "independent/01-market-stats/src/",
+    "line_ranges": [
+      "1-1225"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Same as iter-2 R4-001 — split dataLayer.ts. Add an explicit sign-off in the consolidated review if the chain-traversal complexity is judged unavoidable, and freeze the LOC budget at 1225 going forward (next iteration's reviewer should regress on growth, not just on absolute size)."
+    ],
+    "descriptions": [
+      "wc -l on the same file set as iter-2 (src/*.ts + src/*.tsx + src/components/*.tsx + vite.config.ts) reports 1225 total — iter-3 added 14 more LOC (mostly the price-injection block in dataLayer.ts:204-216 plus a doc-comment expansion). Spec envelope remains 200-300 for a single-route read-only SPA. dataLayer.ts is now 427 lines, still mixing JSON-RPC envelope, traversal, pagination, event parsing, AND business composition. Iter-2's R4-001 recommendation (split into rpc.ts / poolReader.ts / eventReader.ts / composer) was not actioned."
+    ],
+    "impacts": [
+      "Maintenance surface keeps inflating against a fixed contract. Iter-3 demonstrates the pattern: a 'one-line conceptual change' (wire price into traversal) actually grew the file by 14 LOC because each new concern has to be threaded through dataLayer.ts's monolithic structure. Without a split, every future cycle's narrow fix will stretch the same file."
+    ],
+    "evidence": "$ wc -l src/*.ts src/*.tsx src/components/*.tsx vite.config.ts\n  427 src/dataLayer.ts\n  ...\n 1225 total",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-002"
+    ]
+  },
+  {
+    "cluster_id": "C042",
+    "title": "iter-2 R4-002 still applies — types.ts still exports 5 unused interfaces",
+    "file": "independent/01-market-stats/src/types.ts",
+    "line_ranges": [
+      "20-114"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Same as iter-2: either delete the 5 unused interfaces or actually use them (start with RunDataLayerArgs.manifest typed as DeploymentManifest, and the buildQueryEventsFn parsedJson typed as RawOrderInfoEvent — that would also have made the iter-3 price-injection one-liner type-checked rather than the current `String(orderFields['order_id'] ?? ...)` stringly-typed extraction)."
+    ],
+    "descriptions": [
+      "Iter-3 did not touch types.ts. ManifestPoolEntry, DeploymentManifest, BigVectorMeta, RawFillEntry, RawOrderInfoEvent are still defined in types.ts but their only references across src/ are inside types.ts itself (the doc comment header naming them, plus DeploymentManifest using ManifestPoolEntry as a record value). Zero importers in src/components, src/App.tsx, src/dataLayer.ts, src/main.tsx, or src/manifest.ts. PoolCardData is still declared in components/PoolCard.tsx, contradicting the file-header claim that types.ts is the home for it."
+    ],
+    "impacts": [
+      "Same as iter-2 R4-002: the single-source-of-truth narrative the file's doc comment promises is false. The five exports add ~50 LOC of visual noise. The iter-3 patch is the canonical example of where they would have been useful: dataLayer.ts:204-216 manually shapes the Order fields by string-coercion of unknown-typed orderFields, while RawOrderInfoEvent in types.ts already names the OrderInfo event payload shape that the new price comes from."
+    ],
+    "evidence": "export interface ManifestPoolEntry { ... }\nexport interface DeploymentManifest { ... }\nexport interface BigVectorMeta { ... }\nexport interface RawFillEntry { ... }\nexport interface RawOrderInfoEvent { ... }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-005"
+    ]
+  },
+  {
+    "cluster_id": "C008",
+    "title": "iter-3 try/catch around BigInt parse silently swallows malformed order_ids — tautology hider",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "210-216",
+      "196-224"
+    ],
+    "agreement_count": 3,
+    "reviewers": [
+      2,
+      3,
+      5
+    ],
+    "max_severity": "medium",
+    "min_severity": "info",
+    "disputed_severity": true,
+    "categories": [
+      "design",
+      "error-handling",
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Add a logger.warn or a counter (e.g. `state.book.priceDecodeFailures++`) so the silent fallback is observable. Better: drop the marketStats fallbacks entirely (since iter-3 promised the injection is canonical) and let an undefined price propagate to NaN downstream — that at least surfaces in the rendered card. Best: use BigInt arithmetic throughout marketStats so >2^53 prices stay representable.",
+      "No action on the wiring itself. Address R2-001 (align comments to actual decode mechanism) and R2-011 (surface decode failures) as separate fixes.",
+      "When the rewrite for R3-001 happens, either (a) at least console.warn the orderIdStr that failed before setting price=undefined, or (b) skip pushing the order entirely if its price is unrecoverable (don't poison the book with a price-less order that a downstream decoder will then crash on).",
+      "Tests are sealed. Document this as a coverage gap: the try/catch should at minimum log via a counter or a console.warn so the test layer can spy on it; or the fallback path should be removed entirely once the data layer is the canonical source."
+    ],
+    "descriptions": [
+      "The iter-3 patch wraps `Number(BigInt(orderIdStr) >> 64n)` in a try/catch and a `Number.isFinite` check, setting `price = undefined` on any failure. The Order then falls through to marketStats.decodeBidPrice/decodeAskPrice for the failed orderIdStr — i.e. the very fixture-coupled fallback the patch was supposed to retire. So a malformed orderIdStr (or one that exceeds Number.MAX_SAFE_INTEGER after the right-shift, which is plausible for high-bit ask order_ids — `1n << 127n` shifted right 64 gives `1n << 63n` which is `Number.MAX_SAFE_INTEGER * 1024`, beyond Number range and `Number.isFinite` returns false for it) silently degrades back to the broken bid decode without any log or counter.",
+      "Confirmation finding for the iter-3 patch. Iter-2 R2-005 (high) flagged that the CR-2 fix declared an Order.price field in marketStats.ts but never populated it from the data layer. Iter-3 added the population in traverseBigVector lines 209-223: every Order constructed from a BigVector slice now has `price` populated via `Number(BigInt(orderIdStr) >> 64n)`. Both production paths (`runDataLayer` and `fetchSinglePoolStats`) flow through traverseBigVector, so every chain-fetched Order now carries a price. computeMarketStats's `o.price !== undefined ? o.price : decodeBidPrice(o.order_id)` branch now selects the injected price for chain inputs. The original iter-2 high (CR-2 cosmetic) is structurally addressed — though see R2-001 (doc/code drift) and R2-011 (silent fallback hazard) for follow-on concerns introduced by the patch.",
+      "The new try/catch around BigInt(orderIdStr) catches parse failures and sets price = undefined with no log, no count, no signal. Once the bad-shape order is pushed with `price: undefined`, computeMarketStats falls through to decodeAskPrice/decodeBidPrice — which call BigInt(orderId) again on the SAME unparseable string and throw synchronously (R3-007 from iter-2 — those decoders have no try/catch). So the iter-3 try/catch only delays the crash by one frame, AND silently masks the original parse error from any operator-visible diagnostic. The catch{} also hides the typical 'isFinite is false' case (orderIdStr too large for Number-after-shift) which is a meaningful signal: a u128 with bits 64-127 set above 2^53 means precision was lost in the Number cast — silently substituting undefined hides that.",
+      "The iter-3 patch wraps the price decode in `try { price = Number(BigInt(orderIdStr) >> 64n); if (!Number.isFinite(price)) price = undefined; } catch { price = undefined; }`. Any malformed order_id (non-numeric string, empty string, '0xdead...' hex with the '0x' prefix preserved, etc.) will fall through silently to `price = undefined`, which then triggers the marketStats fallback decode (which is itself wrong for bids per iter-2 synthesis notes). No test constructs an order_id that fails BigInt parsing; therefore no test would catch a fixture-shape change that quietly disables the entire injection feature. This is exactly the failure mode the R5-010 verification was supposed to lock down."
+    ],
+    "impacts": [
+      "On real ask orders (high-bit set), `Number(BigInt(id) >> 64n)` may exceed Number.MAX_SAFE_INTEGER, fail isFinite, set price=undefined, and the marketStats branch then runs decodeAskPrice on the same id — which strips the high bit first, so it returns a different value than the data-layer attempted. The fallback can produce a wrong-but-plausible price that the test suite cannot detect because every fixture has a small ask order_id. There is no log, counter, or assertion to surface the silent fallback.",
+      "Iter-2 R2-005 high should be considered closed by this patch. The remaining concerns are about the documentation describing a different design than what shipped, and about the try/catch silently masking decode failures.",
+      "When a real chain returns an order_id that BigInt cannot parse (chain-shape drift, a malformed wrapper response), the user sees either '—' (if marketStats happens to also bail) or a SyntaxError thrown from decodeBidPrice — neither names the original orderIdStr, the slice, or the pool. Latent: probably never fires on the happy path. Low because the deeper R3-001 bug means this code is wrong anyway and rewriting it will subsume this finding.",
+      "If a future chain-shape change supplies hex-prefixed order_ids ('0x...') or any non-decimal numeric format, the BigInt('0x...') would actually succeed but if the field shape changes to something like `{value: '12345'}` instead of '12345', the String() coercion would yield '[object Object]' and BigInt would throw — silently caught, price undefined, fallback to broken decodeBidPrice. None of T-005..T-008, T-014, T-019, T-020 would notice."
+    ],
+    "evidence": "      const orderIdStr = String(orderFields['order_id'] ?? keys[i] ?? '0');\n      let price: number | undefined;\n      try {\n        price = Number(BigInt(orderIdStr) >> 64n);\n        if (!Number.isFinite(price)) price = undefined;\n      } catch {\n        price = undefined;\n      }\n      orders.push({\n        order_id: orderIdStr,\n        quantity: String(orderFields['quantity'] ?? '0'),\n        filled_quantity: String(orderFields['filled_quantity'] ?? '0'),\n        status: Number(orderFields['status'] ?? 0),\n        price,\n      });",
+    "confidence_spread": [
+      "medium",
+      "high"
+    ],
+    "source_ids": [
+      "R2-011",
+      "R2-012",
+      "R3-002",
+      "R5-002"
+    ]
+  },
+  {
+    "cluster_id": "C003",
+    "title": "rpc() does not check response.ok; non-2xx surfaces confusing JSON-parse errors (iter-2 R1-006 unaddressed)",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "45-61"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      1,
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "correctness",
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add `if (!response.ok) throw new Error(\\`${method} HTTP ${response.status}\\`);` between fetch and json().",
+      "Before `await response.json()`: `if (!response.ok) throw new Error(\\`Sui RPC ${method} returned HTTP ${response.status} from ${rpcUrl}. Verify the sandbox is running.\\`);`. Wrap the json() call in try/catch too."
+    ],
+    "descriptions": [
+      "Iter-2 finding carried forward unchanged. rpc() calls fetch then immediately response.json() without checking response.ok. If Sui RPC returns 502/503 (e.g., during sandbox restart) the response body is HTML; response.json() throws SyntaxError 'Unexpected token < in JSON at position 0'. This reaches App.tsx's per-pool error banner verbatim — confusing and not actionable. Failure is observable, not silent — but the error text is misleading. Iter-3 did not address this.",
+      "Iter-2/iter-3 NOT FIXED (R3-004 carry-over). `rpc()` calls `await response.json()` without first asserting `response.ok` or status. A 502/503 from the Sui RPC port, a 404 from a wrong path, or an HTML error page from a misconfigured proxy throws `SyntaxError: Unexpected token < in JSON at position 0` rather than the actionable RPC-unreachable error AC1.1/T-020 promises."
+    ],
+    "impacts": [
+      "Operator-facing error text quality during sandbox restart. Not a correctness regression; UX paper-cut.",
+      "Sandbox-down or sandbox-restart-mid-cycle (a contract-acknowledged failure mode) surfaces as opaque JSON parse errors instead of an actionable 'Sui RPC unreachable; run pnpm deploy-all'. Per-pool, propagated through Promise.allSettled in App.tsx — user sees the same opaque error N times in the alert banner."
+    ],
+    "evidence": "  const response = await fetch(rpcUrl, {\n    method: 'POST',\n    headers: { 'content-type': 'application/json' },\n    body: JSON.stringify({\n      jsonrpc: '2.0',\n      id: ++rpcId,\n      method,\n      params,\n    }),\n  });\n  const env = (await response.json()) as JsonRpcEnvelope<T>;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-006",
+      "R3-006"
+    ]
+  },
+  {
+    "cluster_id": "C007",
+    "title": "iter-2 R4-006 still applies — runDataLayer + fetchSinglePoolStats parallel APIs unchanged",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "324-427",
+      "393-427"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      2,
+      4
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design",
+      "simplicity"
+    ],
+    "recommendations": [
+      "Same as iter-2 R2-011: pick one name. Drop the alias export.",
+      "Same as iter-2: pick one orchestrator. Option (a) — delete fetchSinglePoolStats and have App.tsx call runDataLayer once per refresh — would also collapse the iter-2 R4-005 App.tsx duplication (still present in iter-3, see R4-007 below)."
+    ],
+    "descriptions": [
+      "Iter-2 R2-011 (low) flagged the dual naming: `async function fetchPoolStats` (line 338) plus `export { fetchPoolStats as fetchSinglePoolStats };` (line 427). main.tsx imports it as fetchSinglePoolStats; runDataLayer (line 408) calls it as fetchPoolStats. Iter-3 did not pick a single name.",
+      "Iter-3 did not touch the public-API surface. Both `runDataLayer` (test-only, used by networkShape.test.ts) and `fetchSinglePoolStats` (prod-only, used by main.tsx via App.tsx orchestration) are still exported. runDataLayer keeps its own Promise.allSettled + sentinel-card construction (lines 407-424), parallel to App.tsx's two effects (lines 50-68 and 102-115). The iter-3 price-injection lives inside fetchPoolStats, so runDataLayer indirectly inherits it — which is the only reason networkShape.test.ts kept passing — but the orchestration logic is still duplicated across three sites."
+    ],
+    "impacts": [
+      "Same as iter-2: reader friction for anyone tracing the function across module boundaries. Search-and-replace tooling will miss one of the two names.",
+      "Same as iter-2 R4-006: three sites maintain near-identical sentinel/error/orchestration logic. iter-3 highlights the cost: had the iter-3 fix needed to change orchestration (it didn't), three call sites would have needed coordinated edits. The test-only runDataLayer remains a tautology risk — networkShape.test.ts could pass even if App.tsx orchestration broke."
+    ],
+    "evidence": "export async function runDataLayer(args: RunDataLayerArgs): Promise<PoolCardData[]> { ... }\nexport { fetchPoolStats as fetchSinglePoolStats };",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-010",
+      "R4-006"
+    ]
+  },
+  {
+    "cluster_id": "C004",
+    "title": "resolvePoolInnerFields still conflates four shape variants with implicit fallbacks",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "104-153"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Same as iter-2 R2-004: split into two functions with crisp contracts — `resolvePoolInnerFromVersioned(rpcUrl, poolId): Promise<PoolInnerFields>` (production; throws if the Versioned/dynamic-field traversal does not yield a PoolInner) and `resolvePoolInnerFromDirect(obj): PoolInnerFields | null` (fixture/direct path). Have buildPoolInnerState branch explicitly. Or change the T-014 fixture to return the realistic Pool wrapper shape so the production code path has one variant."
+    ],
+    "descriptions": [
+      "Iter-2 R2-004 (medium) flagged that resolvePoolInnerFields returns four structurally different sub-shapes under one signature and that one branch (`if 'book' in fields return fields`) is the production code-path branching on whether the response shape happens to match the T-014 unit-test fixture. Iter-3 did not touch this function; the four-way fallback ladder, the silent shape conflation, and the fixture-coupled production branch all persist verbatim. buildPoolInnerState still has to defensively `(field?.fields ?? field)` everywhere because the caller cannot tell which variant resolvePoolInnerFields returned."
+    ],
+    "impacts": [
+      "Same as iter-2: any future change to one of the four shapes silently switches branches. There is no logging to identify which path executed. Worst case, a real chain response that accidentally has a top-level `book` field (e.g. if a future Pool refactor inlines the Versioned) would skip the dynamic-field traversal and the code path would degrade silently. The fixture-aware branch makes this concrete."
+    ],
+    "evidence": "// Case 1: Already a PoolInner (T-014 fixture or direct object).\n  if ('book' in fields) return fields;\n\n  // Case 2: Pool wrapper — has `inner` Versioned field.\n  const inner = fields['inner'] as Record<string, unknown> | undefined;\n  if (!inner) return fields; // degraded: return what we have",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-003"
+    ]
+  },
+  {
+    "cluster_id": "C005",
+    "title": "dataLayer.ts still imports PoolCardData from a UI component file",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "21"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Same as iter-2 R2-002: move PoolCardData and SparklinePoint declarations to types.ts (which already documents itself as their home) and have PoolCard.tsx import them as `import type { PoolCardData, SparklinePoint } from '../types.js'`. Then dataLayer.ts imports PoolCardData from types.ts and the dependency direction matches the conceptual layering."
+    ],
+    "descriptions": [
+      "Iter-2 R2-002 (medium) flagged that dataLayer.ts and main.tsx import PoolCardData from `components/PoolCard.js`, inverting the natural dependency direction (data layer depending on UI components). types.ts:14 still claims to be the home of `UI aggregate types (PoolCardData)` but PoolCardData is still declared in components/PoolCard.tsx:16-25. Iter-3 did not touch this; the half-applied single-source-of-truth fix from H-10 persists."
+    ],
+    "impacts": [
+      "Same as iter-2: structurally same shape as a circular dependency, broken only by file-load ordering accident. If anyone moves PoolCard or splits it into sub-components, the data layer breaks. The types.ts header comment is a documented lie until PoolCardData actually moves there."
+    ],
+    "evidence": "import type { PoolCardData } from './components/PoolCard.js';",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-005"
+    ]
+  },
+  {
+    "cluster_id": "C010",
+    "title": "rpc() does not handle network-level fetch rejection (DNS, ECONNREFUSED)",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "45-55",
+      "57-60"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Wrap fetch in try/catch and rethrow with a wrapped, actionable message including rpcUrl and bootstrap hint, attaching the original via `{ cause: err }`.",
+      "After the env.error branch: `if (env.result === undefined) throw new Error(\\`${method} returned no result and no error\\`);`."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-005 carry-over). The fetch() call has no try/catch; the most common sandbox-down case (port closed → `TypeError: Failed to fetch`) propagates verbatim. The error message names neither the RPC URL nor the bootstrap recipe.",
+      "Iter-2/iter-3 NOT FIXED (R3-006 carry-over). After the env.error guard, `return env.result as T` proceeds even if env.result is undefined. Downstream callers (resolvePoolInnerFields, traverseBigVector, buildQueryEventsFn) then read fields off undefined/empty objects via ?. and ?? defaults, silently producing empty books / no fills."
+    ],
+    "impacts": [
+      "The most user-visible failure mode (sandbox not running) gets the least actionable error. Worsened by iter-2 Promise.allSettled wrap: the user sees one identical, opaque 'Failed to fetch' line per pool, multiplying noise without adding signal.",
+      "An aberrant or partial JSON-RPC response (proxy injection, edge-case server impl) results in silent empty data instead of an explicit error. The fallback chains in resolvePoolInnerFields (returns null → buildPoolInnerState skipped → empty Book) make the path even more silent than in iter-1."
+    ],
+    "evidence": "  const response = await fetch(rpcUrl, {\n    method: 'POST',\n    headers: { 'content-type': 'application/json' },",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R3-007",
+      "R3-008"
+    ]
+  },
+  {
+    "cluster_id": "C011",
+    "title": "traverseBigVector silently swallows all per-slice fetch errors with bare catch+continue",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "172-182"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Track failed-slice count and either log via console.warn (`'%d/%d BigVector slices failed for pool %s'`) or thread the count up so PoolCard can show a 'partial data' indicator. At minimum: `} catch (err) { failedSlices++; continue; }` plus a final guard `if (failedSlices === sliceList.data.length && sliceList.data.length > 0) throw new Error(...)`."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-015 carry-over). The `try { ... } catch { continue; }` around per-slice sui_getObject is bare — no error is logged, no count is kept, no signal emitted. If ALL slices fail (e.g. RPC down, packageId wrong), traverseBigVector returns `[]` and the pool's book becomes silently empty. computeMarketStats then returns mid/spread/depth all undefined and the user sees '—' for every metric — looking identical to a genuinely empty pool."
+    ],
+    "impacts": [
+      "Silent total failure of book reads renders identically to a healthy idle pool. iter-1 R3-005 'silent stub' is structurally back. Operator can't distinguish 'sandbox is idle' from 'all slice fetches failing'."
+    ],
+    "evidence": "  for (const slice of sliceList.data) {\n    let sliceObj: SuiObjectResponse;\n    try {\n      sliceObj = await rpc<SuiObjectResponse>(rpcUrl, 'sui_getObject', [\n        slice.objectId,\n        { showContent: true, showType: true },\n      ]);\n    } catch {\n      // BigVector slices churn rapidly on the sandbox; skip deleted slices.\n      continue;\n    }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-015"
+    ]
+  },
+  {
+    "cluster_id": "C013",
+    "title": "buildQueryEventsFn coerces timestamp via Number() with 0 fallback; one bad event truncates pagination",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "293-297"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Filter malformed events in buildQueryEventsFn: if parsed timestamp is non-finite or <= 0, skip the event (don't push) AND don't let it influence pagination. Alternatively, default to nowMs so malformed events are treated as 'still in window'."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-017 carry-over). buildQueryEventsFn computes `const timestampMs = Number(j['timestamp'] ?? ev.timestampMs ?? 0)`. If both fields are missing or non-numeric, timestampMs becomes 0 (epoch). The fill is then pushed downstream with timestampMs=0, where fillFetcher's window check `nowMs - ev.timestampMs > DAY_MS` (line 67) is trivially true for nowMs > 86400000 (any modern clock), which sets `crossedWindow = true` and HALTS pagination after that page. Result: a single malformed event in a page truncates the entire fetch; subsequent in-window fills are never collected."
+    ],
+    "impacts": [
+      "One bad event per pool truncates that pool's fill stream. Volume24h drops to whatever was collected before the malformed event; sparkline truncates similarly. Silent: PoolCard renders the partial data without indicating it's partial. Worst case: malformed event is FIRST in descending-order response → entire pool's fill set is empty."
+    ],
+    "evidence": "      const evPoolId = String(j['pool_id'] ?? '');\n      const timestampMs = Number(j['timestamp'] ?? ev.timestampMs ?? 0);\n      const executedQty = String(j['executed_quantity'] ?? '0');\n      const price = String(j['price'] ?? '0');",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-017"
+    ]
+  },
+  {
+    "cluster_id": "C018",
+    "title": "App polling effect lacks tick-id/abort guard; stale tick can overwrite fresh state (iter-2 R1-008 unaddressed)",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "91-125"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Track a per-tick AbortController; abort it when the next tick starts or component unmounts. Alternatively, use a monotonically increasing tick-id captured at tick start and only commit setState if the resolved tick is the latest."
+    ],
+    "descriptions": [
+      "Iter-2 finding carried forward unchanged. The polling useEffect runs setInterval(20s) and Promise.allSettled over all pools per tick. There is no guard against the previous tick still being in-flight: if a per-pool fetchPoolStats takes >20s (entirely possible during BigVector slice churn per chain-shape.md friction note), tick N+1 starts before tick N's setState commits. Both ticks resolve in arbitrary order; setState applies last-writer-wins, which may be the older request. There is also no AbortController for unmount cleanup; setState may fire on an unmounted component. Iter-3 did not address this."
+    ],
+    "impacts": [
+      "Sparkline freshness AC (AC1.5) intermittently violated under slow/concurrent ticks: a slow fetch can overwrite a more recent fast fetch with stale data. Possible React 'state update on unmounted component' warning if unmount happens during a tick."
+    ],
+    "evidence": "    const intervalId = setInterval(async () => {\n      const pools = manifestPoolsRef.current;\n      if (pools.length === 0) return;\n\n      const settled = await Promise.allSettled(\n        pools.map((p) => deps.fetchPoolStats(p)),\n      );",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-004"
+    ]
+  },
+  {
+    "cluster_id": "C019",
+    "title": "App.tsx polling effect still duplicates initial-load pipeline; no cancel flag",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "41-125"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Same as iter-2: extract `async function refreshAll(deps, pools): Promise<{ cards, poolErrors }>` and have both effects call it. Add a `let cancelled = false` to the polling effect, check it before setState in the async callback, and flip it in the cleanup callback. Or migrate polling to AbortController and pass signal through fetchPoolStats so in-flight RPC calls also abort."
+    ],
+    "descriptions": [
+      "Iter-2 R2-006 (medium) and R2-007 (medium) flagged that the initial-load effect (lines 41-87) and the polling effect (lines 91-125) duplicate ~30 lines of fetch+map+sentinel-card+poolErrors logic, and that the polling effect's `async` setInterval callback calls setState (line 121) after `await Promise.allSettled` without checking a `cancelled` flag (the cleanup only does clearInterval, not flag flip). Iter-3 did not touch App.tsx; both findings persist verbatim. The polling effect's stale-state-update hazard is one cleanup-callback line away."
+    ],
+    "impacts": [
+      "Same as iter-2: two effects re-implementing the same pipeline (maintenance hazard if sentinel-card shape or error-message extraction changes). Plus the polling setState fires after unmount in HMR or component-remount scenarios — React 19 warns rather than errors, but the bug is real (a stale interval tick from a previous mount can stomp on the new mount's state)."
+    ],
+    "evidence": "    const intervalId = setInterval(async () => {\n      const pools = manifestPoolsRef.current;\n      if (pools.length === 0) return;\n\n      const settled = await Promise.allSettled(\n        pools.map((p) => deps.fetchPoolStats(p)),\n      );",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-004"
+    ]
+  },
+  {
+    "cluster_id": "C020",
+    "title": "App.tsx setInterval refresh has no in-flight guard; slow fetches stack and overlap",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "91-125",
+      "94-122"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Track in-flight ref: `const inFlightRef = useRef(false); ... if (inFlightRef.current) return; inFlightRef.current = true; try { await ... } finally { inFlightRef.current = false; }`. Or replace setInterval with a self-rescheduling setTimeout that fires the next call only after the previous resolves.",
+      "Add a `cancelled` ref shared across both effects (or a single AbortController) and guard each setState behind `if (!cancelled.current) setState(...)`."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-018 carry-over). The periodic-refresh effect (H-5 fix) uses `setInterval(async () => { ... await Promise.allSettled(...) }, 20_000)`. setInterval does NOT wait for the previous callback to resolve before firing. If a fetchPoolStats batch takes >20 s (entirely possible with R3-011's unbounded pagination, R3-007's no-timeout fetch, or just slow chain reads), a second batch starts while the first is in flight. Both batches setState; the second-to-resolve overwrites the first. With n pools and slow fetches, in-flight requests stack indefinitely.",
+      "Iter-2/iter-3 NOT FIXED (R3-019 carry-over). The setInterval callback calls setState unconditionally on resolution; there is no `cancelled` ref equivalent to the initial-load effect (line 42). The cleanup function clears the interval, but a callback that was already in-flight when cleanup ran will still call setState after unmount. React 19 will warn ('Cannot update state on an unmounted component') and in strict-mode dev double-invocation this fires reliably."
+    ],
+    "impacts": [
+      "Under degraded RPC conditions, the SPA accumulates background fetches indefinitely. Memory/socket pressure on the browser; multiplied RPC load can worsen the sandbox's slowness. setState ordering non-deterministic — user may see stats flicker between fresh and stale.",
+      "Console-warning noise + small leak (state of unmounted components held in closure). In production rare; in dev/testing pollutes the AC1.1 'no console errors' goal."
+    ],
+    "evidence": "    const intervalId = setInterval(async () => {\n      const pools = manifestPoolsRef.current;\n      if (pools.length === 0) return;\n\n      const settled = await Promise.allSettled(\n        pools.map((p) => deps.fetchPoolStats(p)),\n      );",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R3-018",
+      "R3-019"
+    ]
+  },
+  {
+    "cluster_id": "C021",
+    "title": "iter-2 R4-005 still applies — App.tsx still duplicates ~30 LOC across two effects",
+    "file": "independent/01-market-stats/src/App.tsx",
+    "line_ranges": [
+      "44-125"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Same as iter-2 R4-005: extract `async function refreshCards(pools, deps): Promise<{cards, poolErrors}>`, or collapse to a single effect with a guarded setInterval."
+    ],
+    "descriptions": [
+      "Iter-3 did not touch App.tsx. The initial-load effect (lines 44-82) and the periodic-refresh effect (lines 91-125) still both inline the same Promise.allSettled + sentinel-card map + filter+map for poolErrors + setState. Approximately 30 LOC duplicated."
+    ],
+    "impacts": [
+      "Same as iter-2 R4-005. The iter-3 price-fix is irrelevant here, but the unfixed duplication means a future cycle that adjusts sentinel-card shape (e.g. to add a 'lastUpdatedMs' field for the 30s freshness AC) will have to update both effects independently and they will silently diverge."
+    ],
+    "evidence": "Both effects:\n  const settled = await Promise.allSettled(...);\n  const cards: PoolCardData[] = settled.map((result, i) => { if (result.status === 'fulfilled') return result.value; ... });\n  const poolErrors: string[] = settled.filter(...).map(...);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-007"
+    ]
+  },
+  {
+    "cluster_id": "C029",
+    "title": "Vite middleware 404 body discarded by main.tsx; per-environment disk path lost",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "33-44",
+      "33-45"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Wrap `await response.json()` in try/catch and rethrow as 'Deployment manifest at /localnet.json is not valid JSON: ...'. Same pattern fixes R3-004.",
+      "Have main.tsx read the response body on !response.ok and prefer the server's error message if present: `const body = await response.json().catch(() => null); throw new Error(body?.error ?? defaultMessage);`."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-013 carry-over). main.tsx loadManifest does NOT wrap `fetch(MANIFEST_URL)` in try/catch (network failure → raw TypeError) nor `await response.json()` (malformed JSON → raw SyntaxError). The Vite middleware can serve malformed JSON if the manifest file itself is malformed (the middleware does no parse-validation, just reads bytes — see vite.config.ts:34-37). A truncated/corrupted manifest then surfaces as `SyntaxError: Unexpected token...` directly into App's error UI without any indication this is a manifest-shape problem.",
+      "Iter-2/iter-3 NOT FIXED (R3-012 carry-over). vite.config.ts (lines 38-45) catches the readFile error and returns a 404 with body `{\"error\": \"localnet.json not found at <abs-path>. Run pnpm deploy-all from the deepbook-sandbox repo.\"}`. main.tsx checks `!response.ok` and throws its own message ('not reachable at /localnet.json. Run pnpm deploy-all ...') — the body is never read. The middleware took the trouble to compute and emit the absolute disk path and surface the precise reason, but main.tsx throws all that information away."
+    ],
+    "impacts": [
+      "AC1.1/AC1.2 actionable-error guarantee bypassed in the browser path for the same two failure modes parseManifest defends against in the validation step.",
+      "AC1.2 'actionable error pointing at the bootstrap recipe' is partially satisfied — the message names `pnpm deploy-all` — but loses the per-environment specificity (the actual disk path the middleware tried) that would help diagnose 'is the sandbox checked out at the expected location?'. Two messages, one less informative than the other; the less-informative one wins."
+    ],
+    "evidence": "    if (!response.ok) {\n      throw new Error(\n        `Deployment manifest not reachable at ${MANIFEST_URL}. ` +\n          'Run `pnpm deploy-all` from the deepbook-sandbox repo to regenerate, ' +\n          'then restart the dev server.',\n      );\n    }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-014",
+      "R3-022"
+    ]
+  },
+  {
+    "cluster_id": "C032",
+    "title": "computeMarketStats decoders still unguarded BigInt; Number(quantity) NaN-poisons depth",
+    "file": "independent/01-market-stats/src/marketStats.ts",
+    "line_ranges": [
+      "34-57"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Wrap order-id decode in try/catch and skip orders that fail (with optional console.warn). After Number(), guard `Number.isFinite(qty)` and skip non-finite levels. Also: never default order_id to '0' in dataLayer; skip the order instead."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-007 carry-over). decodeAskPrice/decodeBidPrice still call `BigInt(orderId)` with no try/catch; a non-numeric order_id (chain-shape drift, dataLayer fallback string '0' from R3-008-style undefined) throws synchronous SyntaxError. Number(o.quantity) on lines 50/56 still has no Number.isFinite guard; non-numeric quantities silently become NaN and every NaN level then fails `lvl.price >= lo && lvl.price <= hi` (NaN comparisons always false) so depth silently drops affected levels. The iter-3 try/catch around the *new* BigInt call in dataLayer.ts (line 211) does NOT protect this older call site — the same orderIdStr that defaulted to '0' in iter-3 will hit decodeBidPrice fine (BigInt('0') doesn't throw) but produce decoded price = U64_MAX, which then sorts as the BEST bid — silent garbage."
+    ],
+    "impacts": [
+      "BigInt throw is a hard-crash path, fully reachable in production now via the iter-2 wiring. The iter-3 default-to-'0' on missing order_id (dataLayer.ts line 209) is particularly bad: an order with no order_id silently becomes the best bid at price ~1.8e19 (U64_MAX-0 inverted), distorting mid by a factor of ~1e16."
+    ],
+    "evidence": "function decodeAskPrice(orderId: string): number {\n  const id = BigInt(orderId);\n  ...\n}\n\n  const askPrices = state.book.asks.map((o) => ({\n    price: o.price !== undefined ? o.price : decodeAskPrice(o.order_id),\n    qty: Number(o.quantity),\n  }));",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-009"
+    ]
+  },
+  {
+    "cluster_id": "C033",
+    "title": "iter-2 R4-007 status update — decodeBidPrice/decodeAskPrice are now vestigial dead-on-prod",
+    "file": "independent/01-market-stats/src/marketStats.ts",
+    "line_ranges": [
+      "34-57"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Move decodeAskPrice and decodeBidPrice into tests/_fixtures.ts (or similar) and import them from marketStats.test.ts only. Drop the `o.price !== undefined ? o.price : decodeAskPrice(...)` ternary in computeMarketStats and require Order.price to always be present (typed as `price: number` not `price?: number`). Test fixtures then explicitly compute price via the test-side helper, which is honest about what's a test concern."
+    ],
+    "descriptions": [
+      "Iter-2 R4-007 flagged decodeBidPrice as a wrong-against-prod fallback retained for tests. With iter-3 now populating Order.price for every order pulled by traverseBigVector, the production path NEVER takes the fallback (`o.price !== undefined ? o.price : decodeBidPrice(...)` always selects o.price). The same is now true for decodeAskPrice. Both are reachable only from tests that build fixture Order objects without the price field. They're now strictly vestigial — dead code in the production path, retained as a tests-only API but living in production source."
+    ],
+    "impacts": [
+      "Status change from iter-2: was 'wrong-against-prod fallback' (medium), now 'dead-on-prod fallback whose only readers are tests' (still medium, same severity, different framing). The simplicity cost is the same: ~25 LOC of bit-math in production source that the production runtime never executes. Worse: a future maintainer who deletes the decodeBidPrice line will not break any production path but WILL break ~6 test cases that build fixtures via encodeBid round-trip — which is a textbook hidden-coupling smell (test infrastructure pinning production code that has no production reason to exist)."
+    ],
+    "evidence": "function decodeAskPrice(orderId: string): number { ... }\nfunction decodeBidPrice(orderId: string): number { ... }\n// Both now reachable in production only via the false branch of `o.price !== undefined ? ... : decode...(...)` — which never evaluates because iter-3 always populates price.",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-003"
+    ]
+  },
+  {
+    "cluster_id": "C034",
+    "title": "FillRecord/RawFillEvent twin types and no-op map survive iter-3",
+    "file": "independent/01-market-stats/src/fillAggregator.ts",
+    "line_ranges": [
+      "9-14"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Same as iter-2 R2-003: move one canonical FillRecord (or RawFillEvent — pick one name) into types.ts. fillFetcher and fillAggregator both import it. Drop the no-op `.map(f => ({...}))` in dataLayer.ts:363-368 and pass rawFills directly to aggregateFills."
+    ],
+    "descriptions": [
+      "Iter-2 R2-003 (medium) flagged that FillRecord (fillAggregator.ts:9-14) and RawFillEvent (fillFetcher.ts:19-24) are structurally identical but declared in two modules, forcing the no-op map at dataLayer.ts:363-368. Iter-3 did not touch any of the three. The drift hazard remains: any new field added to one type but not the other is silently lost in the map. Documentation also still drifts — types.ts:14 mentions `RawFillEntry` (which exists in types.ts:94) but neither RawFillEvent nor FillRecord lives there."
+    ],
+    "impacts": [
+      "Same as iter-2: three places to update if a fifth field is ever needed. The map function is dead weight that would silently swallow any future field divergence."
+    ],
+    "evidence": "export interface FillRecord {\n  poolId: string;\n  timestampMs: number;\n  baseQuantity: string;\n  price: string;\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-006"
+    ]
+  },
+  {
+    "cluster_id": "C037",
+    "title": "Vite dev-server middleware still untested (R5-011 from iter-2 carries forward unchanged)",
+    "file": "independent/01-market-stats/vite.config.ts",
+    "line_ranges": [
+      "30-49"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Add a vitest spec that imports the config and verifies the middleware function shape, OR document explicitly that this is dev-only out-of-gate. Same as iter-2."
+    ],
+    "descriptions": [
+      "Iter-3 did not address this. The Vite middleware that bridges browser-to-localnet.json reads from a hardcoded `~/workspace/deepbook-sandbox/sandbox/deployments/localnet.json` path and has zero tests. A regression in vite.config.ts (wrong path, broken middleware ordering, accidental removal during a config refactor) only surfaces when a developer runs pnpm dev. No CI test catches it."
+    ],
+    "impacts": [
+      "Same as iter-2. The dev-only bridge between dev server and SPA is not subject to the per-cycle red/green gate."
+    ],
+    "evidence": "server.middlewares.use('/localnet.json', async (_req, res) => {\n        try {\n          const content = await fs.readFile(MANIFEST_DISK_PATH, 'utf8');",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-006"
+    ]
+  },
+  {
+    "cluster_id": "C039",
+    "title": "manifest.ts loadManifest JSON.parse still unguarded; raw SyntaxError thrown",
+    "file": "independent/01-market-stats/src/manifest.ts",
+    "line_ranges": [
+      "97-103",
+      "105-106"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Discriminate on `(err as NodeJS.ErrnoException).code`: only claim 'not found' for ENOENT, otherwise emit `Deployment manifest at ${path} unreadable: ${code}` with `{ cause: err }`.",
+      "Wrap line 105: `try { return parseManifest(JSON.parse(raw), manifestPath); } catch (err) { if (err instanceof SyntaxError) throw new Error(`Deployment manifest at ${manifestPath} is not valid JSON: ${err.message}. ${BOOTSTRAP_HINT}`); throw err; }`."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (carry-over from iter-2 R3-001). The catch around fs.readFile still rewrites EACCES, EISDIR, EMFILE all to 'Deployment manifest not found at <path>'. Original error is dropped — no `cause`, no errno, no console.error. parseManifest extraction (iter-2) was good but loadManifest's I/O error path was untouched in iter-3.",
+      "Iter-2/iter-3 NOT FIXED (R3-002 carry-over). After fs.readFile succeeds, line 105 calls `JSON.parse(raw) as unknown` with no try/catch. parseManifest validates AFTER parse, but a malformed JSON payload (truncated mid-write by `pnpm deploy-all`, BOM, accidental edit) still throws raw `SyntaxError: Unexpected token ... in JSON at position N` with no manifest path, no bootstrap hint, no actionable message."
+    ],
+    "impacts": [
+      "Operator with a permissions issue gets pointed at `pnpm deploy-all`, which won't fix it. Affects only Node-side test/CLI tooling now; production browser path uses the Vite middleware (vite.config.ts has the same single-message problem at lines 38-45 — see R3-016).",
+      "AC1.2 actionable-error guarantee bypassed for the malformed-JSON case. Same problem exists in main.tsx response.json() path (R3-013) and in vite.config.ts middleware (it serves bytes without validating they parse)."
+    ],
+    "evidence": "  } catch (err) {\n    throw new Error(\n      `Deployment manifest not found at ${manifestPath}. ${BOOTSTRAP_HINT}`,\n    );\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-003",
+      "R3-004"
+    ]
+  },
+  {
+    "cluster_id": "C044",
+    "title": "marketStats T-005..T-008 fixtures still construct Orders without `price` — branch coverage of the iter-3 injection path remains zero in compute layer too",
+    "file": "independent/01-market-stats/tests/marketStats.test.ts",
+    "line_ranges": [
+      "52-99"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Tests are sealed. Add (next cycle) one fixture row to T-005 where `order(...)` accepts an optional `price` parameter and the assertion is `expect(stats.bestAsk).toBe(<injectedPrice>)` regardless of what decodeAskPrice would have returned for that order_id (e.g. set order_id to a value that decodes to 9999 but inject price=1010, then assert bestAsk===1010)."
+    ],
+    "descriptions": [
+      "Iter-3 added the data-layer side of the Order.price injection, but the compute-side branch in computeMarketStats (`o.price !== undefined ? o.price : decodeAskPrice(o.order_id)`, lines 49 and 55 of marketStats.ts) is still exercised exclusively via the fallback-decode arm. The `order(...)` helper (marketStats.test.ts:52-64) returns `{ order_id, quantity, filled_quantity, status }` with no `price` field at all. So even if a future bug rewrote the conditional to `o.price !== undefined ? decodeAskPrice(o.order_id) : o.price` (a swap that produces nonsense in production), every existing T-005..T-008 assertion would still pass — because the fixture path always lands on decodeAskPrice anyway. This is a textbook tautology: the test shape pre-decides which branch runs."
+    ],
+    "impacts": [
+      "AC1.4 mid-price correctness: the compute layer's preference for injected price over decode is unverified at the unit level. The data-layer R5-001 gap above and this compute-layer gap together mean the entire 'inject price, prefer it' design is verified by zero assertions end-to-end."
+    ],
+    "evidence": "function order(\n  orderId: string,\n  quantity: string,\n  filled = '0',\n  status = 0,\n): Order {\n  return {\n    order_id: orderId,\n    quantity,\n    filled_quantity: filled,\n    status,\n  };\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-003"
+    ]
+  },
+  {
+    "cluster_id": "C045",
+    "title": "T-014 still uses identical canned response for all sui_getObject calls — Versioned-traversal branch and new iter-3 injection both unexercised (R5-013 carries forward)",
+    "file": "independent/01-market-stats/tests/networkShape.test.ts",
+    "line_ranges": [
+      "82-119"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Tests are sealed. Acknowledge T-014's scope is URL/method lockdown; add a separate cycle/test for traversal correctness against a captured real-shape fixture (one that returns a Pool wrapper with `inner.fields.id.id`, then a non-empty getDynamicFields response, then a Slice<Order> with real order_ids)."
+    ],
+    "descriptions": [
+      "Iter-3 did not address this; the implications of T-014's spy shape are now sharper. The spy returns the SAME 'leaf' PoolInner payload for every objectId. resolvePoolInnerFields hits the `'book' in fields` early-return branch (dataLayer.ts:117) every time. The Pool→Versioned→PoolInner→getDynamicFields branch (lines 119-152) — which is the production shape per chain-shape.md — is still unexercised by any test. Additionally, the iter-3 traverseBigVector injection at lines 196-220 (the entire reason iter-3 exists) is also unexercised because the spy returns `{data: [], hasNextPage: false}` for suix_getDynamicFields, so traverseBigVector returns [] at line 168 before ever entering the slice loop. T-014's name 'outbound HTTP shape lockdown' is honest — but the test does NOT verify production traversal correctness."
+    ],
+    "impacts": [
+      "AC1.5's 'no indexer call' is verified, but the chain-direct shape correctness on the production branch remains untested. Combined with R5-001 above, this means iter-3's fix is structurally present in code and exercised by zero tests at every layer."
+    ],
+    "evidence": "if (method === 'sui_getObject') {\n      // Return a minimal pool wrapper -> versioned -> inner-state shape that\n      // exercises the dynamic-field traversal path. To keep the spy simple\n      // we always return a \"leaf\" object with a `book` field;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-007"
+    ]
+  },
+  {
+    "cluster_id": "C006",
+    "title": "iter-2 R4-008/R4-009 still apply — module-level rpcId and inline RunDataLayerArgs.manifest unchanged",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "43",
+      "26-43"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      2,
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design",
+      "simplicity"
+    ],
+    "recommendations": [
+      "Same as iter-2 R2-009: move into a closure created per `runDataLayer` invocation, or use `crypto.randomUUID()` / `Date.now()` for the id.",
+      "Same as iter-2 R4-008 (scope rpcId inside runDataLayer or set id:1) and iter-2 R4-009 (import DeploymentManifest from types.ts and replace the inline shape)."
+    ],
+    "descriptions": [
+      "Iter-1 R2-010 (low) and iter-2 R2-009 (low) both flagged `let rpcId = 0;` at module scope. Iter-3 did not touch it. Inert today (JSON-RPC ids only need uniqueness within a connection), but global mutable state in a module that otherwise consciously injects state via args.",
+      "Iter-3 did not touch the module-level `let rpcId = 0` (line 43) or the inline `manifest: { network?; packages?; pools? }` shape on RunDataLayerArgs (lines 26-34). Both iter-2 findings still apply byte-for-byte; neither was fixed by the price-injection patch and neither was claimed to be in scope."
+    ],
+    "impacts": [
+      "Negligible at runtime. Slightly harder to reason about than necessary; would silently couple any future test that asserts on the id to test-execution order.",
+      "Carry-forward, no new harm. Flagging so consolidator does not lose track."
+    ],
+    "evidence": "let rpcId = 0;\n\nexport interface RunDataLayerArgs {\n  manifest: {\n    network?: { rpcUrl?: string };\n    packages?: { deepbook?: { packageId?: string } };\n    pools?: Record<string, { poolId: string; baseCoinType: string; quoteCoinType: string }>;\n  };\n  rpcUrl: string;\n  nowMs: number;\n}",
+    "confidence_spread": [
+      "medium",
+      "high"
+    ],
+    "source_ids": [
+      "R2-008",
+      "R4-011"
+    ]
+  },
+  {
+    "cluster_id": "C014",
+    "title": "runDataLayer silently coerces missing packageId to empty string",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "395-396"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add an explicit assertion at the top of runDataLayer: `if (!manifest.packages?.deepbook?.packageId) throw new Error('runDataLayer: manifest missing packages.deepbook.packageId');`. Better: change the manifest type to LoadedManifest (the validated shape)."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-021 carry-over). runDataLayer's `const packageId = manifest.packages?.deepbook?.packageId ?? '';` silently coerces a missing packageId to '' rather than throwing. The downstream queryEvents call then issues `{ MoveModule: { package: '', module: 'pool' } }` which the Sui RPC will reject — error eventually surfaces, but as a confusing JSON-RPC error rather than the validated 'manifest missing packages.deepbook.packageId' error parseManifest is designed to throw."
+    ],
+    "impacts": [
+      "Defensive gap. Silent fallback duplicates parseManifest's responsibility but doesn't enforce it. If a future caller bypasses parseManifest (e.g. constructs a manifest object inline for testing), the empty-string packageId silently flows to the chain."
+    ],
+    "evidence": "  const pools = manifest.pools ?? {};\n  const packageId = manifest.packages?.deepbook?.packageId ?? '';",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-021"
+    ]
+  },
+  {
+    "cluster_id": "C016",
+    "title": "iter-2 R4-004 still applies — RawFillEvent and FillRecord still structurally identical",
+    "file": "independent/01-market-stats/src/dataLayer.ts",
+    "line_ranges": [
+      "363-368"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Same as iter-2: pick one type or have fillFetcher return FillRecord[] directly."
+    ],
+    "descriptions": [
+      "Iter-3 did not touch fetchPoolStats. The fill-records mapping at dataLayer.ts:363-368 is still a field-for-field copy from RawFillEvent (fillFetcher.ts) to FillRecord (fillAggregator.ts). Unchanged from iter-2 R4-004."
+    ],
+    "impacts": [
+      "Same as iter-2 — pure noise + drift hazard if shapes diverge."
+    ],
+    "evidence": "const fillRecords: FillRecord[] = rawFills.map((f) => ({\n    poolId: f.poolId,\n    timestampMs: f.timestampMs,\n    baseQuantity: f.baseQuantity,\n    price: f.price,\n  }));",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-010"
+    ]
+  },
+  {
+    "cluster_id": "C024",
+    "title": "fetchFills loop has no upper bound on pagination; misbehaving RPC could spin forever",
+    "file": "independent/01-market-stats/src/fillFetcher.ts",
+    "line_ranges": [
+      "59-78",
+      "62-72"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add hard iteration cap: `for (let i = 0; i < 200; i++)` and throw 'queryEvents pagination exceeded N pages without satisfying stop conditions' if reached. Also detect cursor-no-advance.",
+      "`if (!Array.isArray(response.data)) throw new Error('queryEvents returned non-array data field');` at top of loop body."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-009 carry-over). fetchFills uses `while (true)` with three break conditions but no maximum-iteration safety bound. If queryEvents returns hasNextPage:true indefinitely while always returning data old-but-not-quite (so neither MAX_FILLS nor crossedWindow fires) or returns the same cursor, fetchFills hangs forever and App stays in 'loading' status with no signal.",
+      "Iter-2/iter-3 NOT FIXED (R3-010 carry-over). fillFetcher assumes response.data is iterable. dataLayer.ts buildQueryEventsFn defends with `result.data ?? []` (the production path through is safe), but the QueryEventsFn type signature allows custom impls returning `data: undefined` (R3-008 means rpc() can return undefined). `for (const ev of response.data)` then throws `TypeError: response.data is not iterable`."
+    ],
+    "impacts": [
+      "Hung loading state with no timeout. Combined with the setInterval refresh (App.tsx line 94, R3-018), a hung fetchFills will block subsequent refresh cycles' Promise.allSettled.",
+      "Edge-case crash with non-actionable error. Lower risk than iter-1 because dataLayer.ts now defends, but the contract is fragile."
+    ],
+    "evidence": "  while (true) {\n    const response = await queryEvents({ packageId, poolId, cursor });\n    ...\n    if (collected.length >= MAX_FILLS) break;\n    if (crossedWindow) break;\n    if (!response.hasNextPage) break;\n    cursor = response.nextCursor;\n  }",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R3-011",
+      "R3-012"
+    ]
+  },
+  {
+    "cluster_id": "C025",
+    "title": "chain-shape.md decoding note is internally contradictory; types.ts comment perpetuates the wrong half",
+    "file": "independent/01-market-stats/notes/chain-shape.md",
+    "line_ranges": [
+      "136-145"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "documentation"
+    ],
+    "recommendations": [
+      "Rewrite chain-shape.md lines 136-145 to: 'order_id u128 layout: bit 127 = ask flag (1=ask, 0=bid); bits 64-126 = price (plain integer, NOT inverted, on both sides); bits 0-63 = order counter (ASKS use ascending counter; BIDS use U64_MAX - counter so newest bid sorts first under ascending raw-id sort within a price level). To extract price: (id & ((1<<127)-1)) >> 64. The captured samples (ASK order_id 170141183460486719245069180370816077150 → price 948000; BID order_id 12377783720203182843884075 → price 671000) are the regression fixtures.' Also fix marketStats.test.ts makeBidOrderId to NOT invert price, and fix types.ts line 8 comment."
+    ],
+    "descriptions": [
+      "chain-shape.md states two things about the bid encoding that cannot both be true: (1) 'for bids it's [the encoding is] decreasing (inverted price), so a sort by raw order_id ascending lists ... bids worst-first' AND (2) 'price is the upper 64 bits; the lower 64 bits are an order-counter disambiguator'. Empirically the captured bid order_id 12377783720203182843884075 has high-64 = 671000 = real price (plain), and low-64 = U64_MAX - 3540 (inverted counter, so descending sort puts newest bid first). So statement (2) is correct for the price half, statement (1) is correct for the COUNTER (not the price) — but the marketStats.test.ts fixture builder makeBidOrderId encodes ((U64_MAX - price) << 64) | counter, which contradicts (2) and matches (1) misread as price-inverted. The test fixture's encoding is inconsistent with the captured chain shape; tests pass against the fixture's own builder by tautology. types.ts comment line 8 echoes 'bid prices are stored inverted as U64_MAX - price' which is the same wrong reading. This documentation drift is the upstream root cause of both the iter-2 CR-2 (`decodeBidPrice` defined for the wrong inversion) and the iter-3 R1-001 (the `>> 64n` shortcut, which is correct for bids and wrong for asks because the author conflated the two cases)."
+    ],
+    "impacts": [
+      "Future authors will keep getting this wrong until the note is rewritten. The iter-2 critical and iter-3 critical both have this single root cause."
+    ],
+    "evidence": "**Critical decoding note (sui-sdk + deepbook):** `order_id` is a u128 returned\nby RPC as a decimal string. The high bits encode the limit price. For asks the\nencoding is monotonically increasing in price; for bids it's decreasing\n(inverted price), so a sort by raw `order_id` ascending lists asks\nbest-first / bids worst-first. The price itself can also be derived from the\nevent stream (`OrderPlaced.price`) or by decoding bits 64-127 of the u128\n(price is the upper 64 bits; the lower 64 bits are an order-counter\ndisambiguator).",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-007"
+    ]
+  },
+  {
+    "cluster_id": "C026",
+    "title": "Polling refresh does not reload manifest; cachedPackageId stale across sandbox restart (iter-2 R1-005 unaddressed)",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "47-69"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Either (a) reload the manifest as part of the polling cycle and feed packageId via props, or (b) log a console.warn once when cachedPackageId is '' on a fetchPoolStats call so the silent-zero case at least leaves a trail."
+    ],
+    "descriptions": [
+      "Iter-2 finding carried forward unchanged. main.tsx caches cachedPackageId at first loadManifest and never re-reads it. The App.tsx periodic refresh effect calls fetchPoolStats which uses the cached packageId. If the sandbox restarts mid-session and emits a new packageId, the SPA keeps querying the old packageId — suix_queryEvents filtered to a non-existent module returns zero events; cards continue to render but the sparkline silently freezes. Same silent-failure shape as iter-1 CR-1 in micro."
+    ],
+    "impacts": [
+      "AC1.5 freshness fails silently after a sandbox restart with no UI signal."
+    ],
+    "evidence": "let cachedPackageId = '';\nconst _origLoadManifest = deps.loadManifest;\ndeps.loadManifest = async () => {\n  const manifest = await _origLoadManifest();\n  cachedPackageId = manifest.deepbookPackageId;\n  return manifest;\n};",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R1-008"
+    ]
+  },
+  {
+    "cluster_id": "C028",
+    "title": "main.tsx silently no-ops when #root element is missing",
+    "file": "independent/01-market-stats/src/main.tsx",
+    "line_ranges": [
+      "71-74"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "`if (!root) throw new Error('main.tsx: #root missing in index.html');`. Or at minimum console.error."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-003 carry-over). If document.getElementById('root') returns null (broken index.html, hot-reload race, mismatched id), the `if (root)` guard silently skips createRoot/render. Blank page, no console error."
+    ],
+    "impacts": [
+      "Blank page with zero diagnostic. Low because index.html is correct today; the silent-skip default is the wrong choice for a fatal mounting precondition."
+    ],
+    "evidence": "const root = document.getElementById('root');\nif (root) {\n  createRoot(root).render(<App deps={deps} />);\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-005"
+    ]
+  },
+  {
+    "cluster_id": "C035",
+    "title": "aggregateFills coerces fill price/quantity via Number() with no NaN guard",
+    "file": "independent/01-market-stats/src/fillAggregator.ts",
+    "line_ranges": [
+      "32-46"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "`const q = Number(f.baseQuantity); if (Number.isFinite(q)) volume24h += q;` and similarly for price. Optional: count and surface malformedFills."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-008 carry-over). aggregateFills sums `Number(f.baseQuantity)` into volume24h and casts `Number(sorted[last].price)` for lastPrice without guarding NaN. A single malformed fill record (chain-shape drift, missing field) poisons the whole day's volume (NaN + N = NaN for the rest of the loop) and lastPrice silently becomes NaN. PoolCard's fmt sentinel masks the symptom — user sees '—' for ALL trades when only one was malformed."
+    ],
+    "impacts": [
+      "Single bad fill corrupts whole-day volume. Silent: '—' looks identical to 'no trades'. Reachable via the live data layer."
+    ],
+    "evidence": "  for (const f of sorted) {\n    if (nowMs - f.timestampMs <= DAY_MS) {\n      volume24h += Number(f.baseQuantity);\n    }\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-010"
+    ]
+  },
+  {
+    "cluster_id": "C036",
+    "title": "vite.config.ts manifest path still hard-coded to home-relative layout",
+    "file": "independent/01-market-stats/vite.config.ts",
+    "line_ranges": [
+      "17-24"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Same as iter-2 R2-008: read from an env var with the current default. `const MANIFEST_DISK_PATH = process.env.SANDBOX_MANIFEST_PATH ?? path.join(homedir(), 'workspace', 'deepbook-sandbox', 'sandbox', 'deployments', 'localnet.json');`. Document `SANDBOX_MANIFEST_PATH` in the README/runbook."
+    ],
+    "descriptions": [
+      "Iter-2 R2-008 (low) flagged that the manifest disk path is hard-coded as `~/workspace/deepbook-sandbox/sandbox/deployments/localnet.json`, coupling the dev server to a specific workspace layout that the contract section 'Integration / sandbox contract' said should be configurable per-environment. Iter-3 did not touch vite.config.ts."
+    ],
+    "impacts": [
+      "Same as iter-2: friction for any developer whose checkout is not at exactly that path. Mitigated by the 404 response surfacing the expected path, so failure is debuggable."
+    ],
+    "evidence": "const MANIFEST_DISK_PATH = path.join(\n  homedir(),\n  'workspace',\n  'deepbook-sandbox',\n  'sandbox',\n  'deployments',\n  'localnet.json',\n);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-007"
+    ]
+  },
+  {
+    "cluster_id": "C038",
+    "title": "manifest.ts still re-exports types from types.ts; two canonical paths persist",
+    "file": "independent/01-market-stats/src/manifest.ts",
+    "line_ranges": [
+      "22-23"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Same as iter-2 R2-010: drop the re-export from manifest.ts, update App.tsx (line 14) and dataLayer.ts (line 19) to import directly from types.ts."
+    ],
+    "descriptions": [
+      "Iter-2 R2-010 (low) flagged that manifest.ts re-exports PoolDescriptor and LoadedManifest from types.ts (line 22) while also importing them (line 23). Iter-3 did not touch it. App.tsx:14 and dataLayer.ts:19 still import these types from manifest.ts, perpetuating the dual canonical path."
+    ],
+    "impacts": [
+      "Same as iter-2: consolidator can no longer tell which file is canonical for these types just by reading imports. Doubles the surface area for type drift."
+    ],
+    "evidence": "export type { PoolDescriptor, LoadedManifest } from './types.js';\nimport type { LoadedManifest, PoolDescriptor } from './types.js';",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-009"
+    ]
+  },
+  {
+    "cluster_id": "C043",
+    "title": "types.ts Order.price doc-comment lies about provenance; iter-3 actually decodes from order_id, not from a companion event",
+    "file": "independent/01-market-stats/src/types.ts",
+    "line_ranges": [
+      "60-74"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Tests are sealed. Either (a) update the docstring to say 'injected by decoding order_id high 64 bits in the data layer' and acknowledge the bid-inversion problem; or (b) actually wire the data layer to OrderInfo events (which would also fix the ask-price ~9.22e18 bug from R5-001)."
+    ],
+    "descriptions": [
+      "Order.price's docstring says: 'price is NOT on the chain Order struct; it is injected by the data layer from the corresponding OrderInfo event payload to avoid order_id bit-decode errors on bid orders'. Iter-3's actual implementation (dataLayer.ts:204-216) injects price by bit-decoding the order_id high 64 bits — the exact thing the doc says it is avoiding. No test asserts the provenance of the injected value, so the documentation drift is invisible to the test gate. A reader trusting the doc-comment will assume the injected value reflects an event-side price (real chain price); they will not realize it is an order_id-decode that has the same defects as decodeAskPrice (and a worse defect for bids: it does not invert)."
+    ],
+    "impacts": [
+      "Low at the test-gate layer (no test cares about doc-comments), but feeds back into R5-001/R5-002 above: the fix's documented intent and its implementation diverge, and the test suite cannot detect that."
+    ],
+    "evidence": "/**\n * Order struct shape from Slice<Order> content — see chain-shape.md Step 4.\n *\n * `price` is NOT on the chain Order struct; it is injected by the data layer\n * from the corresponding OrderInfo event payload to avoid order_id bit-decode\n * errors on bid orders (see chain-shape.md \"Critical decoding note\").\n */",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-008"
+    ]
+  },
+  {
+    "cluster_id": "C040",
+    "title": "PoolCard fmt() uses String(value); fine numerics render as scientific notation",
+    "file": "independent/01-market-stats/src/components/PoolCard.tsx",
+    "line_ranges": [
+      "29-34"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Mirror sparkline's toFixed approach: `value.toLocaleString(undefined, { maximumFractionDigits: 6 })` or pin per-field toFixed."
+    ],
+    "descriptions": [
+      "Iter-2/iter-3 NOT FIXED (R3-011 carry-over). fmt() returns `String(value)` for finite numbers; very small or very large values render as scientific notation (e.g. '1.23e-8') which a non-technical user might misread as the sentinel. Especially relevant given R3-001: the iter-3-broken price decode produces values around 9.22e18 for asks — those will literally render as '9.223372036854776e+18' in the UI."
+    ],
+    "impacts": [
+      "Cosmetic / latent UX bug. Not load-bearing for any AC. Now also a leakage path for the R3-001 garbage-price values to surface visibly to the user as obviously-broken numbers."
+    ],
+    "evidence": "function fmt(value: number | undefined): string {\n  if (value === undefined || value === null || !Number.isFinite(value)) {\n    return SENTINEL;\n  }\n  return String(value);\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-013"
+    ]
+  }
+]

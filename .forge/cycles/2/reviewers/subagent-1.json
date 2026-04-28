@@ -1,0 +1,28 @@
+[
+  {
+    "id": "R1-001",
+    "title": "Move.toml localnet chain ID is stale and will silently mis-resolve env on a freshly redeployed sandbox",
+    "severity": "low",
+    "category": "correctness",
+    "file": "independent/02-slippage-swap/Move.toml",
+    "line_range": "18-19",
+    "description": "The [environments] block pins localnet to chain ID a62c4e17, copied verbatim from example_contract. The synthesis notes explicitly observe that the running sandbox's chain ID regenerates on each `pnpm deploy-all` (currently f6ec69c1), which is why `sui move test -e localnet` was required in the green run. AC2.4 requires `sui move build` to exit zero against the running sandbox; without the explicit `-e localnet` flag a contributor running default `sui move build`/`sui move test` against a regenerated sandbox can hit env-resolution friction. This does not affect correctness of the wrapper logic itself, but it pins a stale chain ID into source.",
+    "impact": "A maintainer running `sui move build` or `sui move test` without `-e localnet` against a redeployed sandbox will see chain-ID-resolution warnings or env mismatches. Tests still pass when the flag is supplied (green log confirms 4/4 PASS), but the staleness is load-bearing on the invocation flag.",
+    "recommendation": "Either (a) document the required `-e localnet` flag in a comment next to the [environments] block referencing the synthesis-notes finding, or (b) drop the [environments] block entirely if the sandbox chain ID is non-deterministic across deploys. Option (a) is lowest-risk since the example_contract template uses the same value.",
+    "evidence": "[environments]\nlocalnet = \"a62c4e17\"",
+    "confidence": "medium"
+  },
+  {
+    "id": "R1-002",
+    "title": "Wrapper's assertion correctly enforces the slippage floor with `>=` and pins the documented error code",
+    "severity": "info",
+    "category": "correctness",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_range": "43-47",
+    "description": "Cross-checked the wrapper's call against the upstream DeepBook signature at /Users/alilloig/workspace/deepbook-sandbox/sandbox/.external-packages/deepbook/sources/pool.move:248-266. The signature is `swap_exact_base_for_quote<BaseAsset, QuoteAsset>(self: &mut Pool<BaseAsset, QuoteAsset>, base_in: Coin<BaseAsset>, deep_in: Coin<DEEP>, min_quote_out: u64, clock: &Clock, ctx: &mut TxContext) -> (Coin<BaseAsset>, Coin<QuoteAsset>, Coin<DEEP>)`. The wrapper passes argument types and order correctly, supplies `min_quote_out = 0` so DeepBook's internal min-out check never pre-empts the wrapper's gate (per T-002 design note in tests.json), destructures all three returned coins, applies `assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput)` using `>=` (not `>`) per AC2.3 verbatim, and transfers all three coins (base residual, quote output, DEEP residual) to `tx_context::sender(ctx)` with no coin dropped on the floor or wrapped into a residual object. T-005 in the test file confirms this end-to-end. No correctness defect found.",
+    "impact": "None — observation only, recording that the correctness-critical wiring is right.",
+    "recommendation": "No change required. Recording for audit trail.",
+    "evidence": "let (base_residual, quote_out, deep_residual) =\n        pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx);\n\n    // Enforce the caller's slippage floor.\n    assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput);",
+    "confidence": "high"
+  }
+]

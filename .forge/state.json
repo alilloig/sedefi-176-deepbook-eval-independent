@@ -1,0 +1,45 @@
+{
+  "phase_history": ["plan", "spec-and-e2e", "cycle-plan"],
+  "current_cycle": 0,
+  "total_cycles": 0,
+  "cycle_status": "not_started",
+  "iteration": 0,
+  "retries_per_phase": {
+    "red": 0,
+    "green": 1,
+    "consolidated-review": 0,
+    "phase-f": 0
+  },
+  "remediation_cycles": 0,
+  "light_mode": false,
+  "quick_mode": false,
+  "started_at": "2026-04-27T16:16:59Z",
+  "phase_0_completed_at": "2026-04-27T16:25:00Z",
+  "codex_threads": {
+    "claudex_g0": "019dcfc7-99d8-79d2-af34-99d9e23e74b6",
+    "g2a": "019dcfe2-ec6a-7fd3-b26c-f0bd1902caef",
+    "g2b": "019dcfec-a121-71f0-83bc-1e9bdfcb8900"
+  },
+  "phase_1_completed_at": "2026-04-27T19:18:00Z",
+  "phase_2_completed_at": "2026-04-27T19:30:00Z",
+  "total_cycles": 6,
+  "paused": false,
+  "resumed_at": "2026-04-27T21:30:00Z",
+  "pause_history": [
+    {
+      "paused_at": "2026-04-27T19:50:00Z",
+      "resumed_at": "2026-04-27T21:30:00Z",
+      "reason": "G-Boot gate failed: pnpm deploy-all errors at Phase 3 publishing token package, then sandbox indexer's pools table never populated by deploy script. Resolution: Slot 1 pivots to chain-direct reads (Sui RPC sui_getObject + suix_queryEvents); spec.md and cycle-plan.md patched to match. Sandbox itself is up and chain reads work."
+    }
+  ],
+  "current_cycle": 6,
+  "cycle_status": "in_progress",
+  "cycle_1_status": "delivered-with-caveats (cap reached at iter-4; user accepted; review at cycles/1/review.md)",
+  "cycle_2_status": "accepted (4/4 tests pass after T-003 amendment; 0 critical, 0 high, 3 medium documented; review at cycles/2/review.md)",
+  "cycle_3_status": "accepted (7/7 tests pass; iter-2 fixed pool_id high; remaining high is intentional spec design; 2 medium documented; review at cycles/3/review.md)",
+  "cycle_4_status": "accepted (63/63 tests pass after iter-2 dead-pipeline fix; 5 critical fixed; 4 high carry-forward; review at cycles/4/review.md)",
+  "cycle_5_status": "accepted (10/10 tests pass after dapp-kit lazy-promise + T-001/T-006 test amendments; review pass skipped per user ship-it directive; review at cycles/5/review.md)",
+  "phase": "done",
+  "cycle_6_status": "accepted (RUNBOOK + FEEDBACK written; 28 source-attributed bullets across 3 required sections; all spec §9.3 layers covered)",
+  "completed_at": "2026-04-28T03:25:00Z"
+}

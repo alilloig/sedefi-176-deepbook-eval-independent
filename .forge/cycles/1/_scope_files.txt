@@ -1,0 +1,8 @@
+`independent/01-market-stats/package.json`
+`independent/01-market-stats/tsconfig.json`
+`independent/01-market-stats/vite.config.ts`
+`independent/01-market-stats/index.html`
+`independent/01-market-stats/notes/chain-shape.md`
+`independent/01-market-stats/src/**/*.ts`
+`independent/01-market-stats/src/**/*.tsx`
+`independent/raw-friction.log`

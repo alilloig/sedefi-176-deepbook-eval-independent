@@ -1,0 +1,4 @@
+`independent/02-slippage-swap/Move.toml`
+`independent/02-slippage-swap/sources/**/*.move`
+`independent/02-slippage-swap/tests/**/*.move`
+`independent/raw-friction.log`

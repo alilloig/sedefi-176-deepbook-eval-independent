@@ -1,0 +1,8 @@
+{
+  "phase": "red",
+  "exit_code": 1,
+  "phase_pass": true,
+  "started_at": "2026-04-27T21:31:30Z",
+  "ended_at": "2026-04-27T21:31:31Z",
+  "command": "bash -c cd /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/02-slippage-swap && sui move test --build-env localnet"
+}

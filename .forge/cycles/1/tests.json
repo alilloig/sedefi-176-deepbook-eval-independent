@@ -1,0 +1,200 @@
+[
+  {
+    "id": "T-001",
+    "name": "manifest loader enumerates all pool descriptors from a fixture deployment manifest",
+    "behavior": "given a fixture localnet.json containing N pool entries under the pools block, the manifest loader returns N pool descriptors and each descriptor exposes poolId, baseCoinType, and quoteCoinType derived from the manifest entry",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/manifest.ts",
+    "test_file": "independent/01-market-stats/tests/manifest.test.ts",
+    "covers_contract_requirement": "AC1.2"
+  },
+  {
+    "id": "T-002",
+    "name": "manifest loader extracts the deployed DeepBook package id",
+    "behavior": "given a fixture localnet.json with a deepbook.packageId (or equivalent) entry, the manifest loader returns the package id as a string and never returns a hard-coded fallback id",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/manifest.ts",
+    "test_file": "independent/01-market-stats/tests/manifest.test.ts",
+    "covers_contract_requirement": "AC1.2"
+  },
+  {
+    "id": "T-003",
+    "name": "manifest loader throws an actionable error when the manifest file is missing",
+    "behavior": "when the manifest path resolves to a non-existent file, the loader throws an error whose message names the expected manifest path and references the sandbox boot command so the inline error UI can surface it to the user",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/manifest.ts",
+    "test_file": "independent/01-market-stats/tests/manifest.test.ts",
+    "covers_contract_requirement": "AC1.2"
+  },
+  {
+    "id": "T-004",
+    "name": "manifest loader rejects a manifest missing the pools key",
+    "behavior": "given a fixture manifest object that lacks the pools key entirely, the loader throws a clear validation error rather than silently returning an empty pool list",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/manifest.ts",
+    "test_file": "independent/01-market-stats/tests/manifest.test.ts",
+    "covers_contract_requirement": "AC1.2"
+  },
+  {
+    "id": "T-005",
+    "name": "computeMarketStats returns mid, spread, and depth for a populated inner-state fixture",
+    "behavior": "given a captured pool inner-state fixture (sourced from notes/chain-shape.md) with non-empty bid and ask ladders, computeMarketStats returns mid-price, bid/ask spread, and depth-at-+/-1%-from-mid as finite numeric values consistent with the fixture's best bid and best ask",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/marketStats.ts",
+    "test_file": "independent/01-market-stats/tests/marketStats.test.ts",
+    "covers_contract_requirement": "AC1.4"
+  },
+  {
+    "id": "T-006",
+    "name": "computeMarketStats invariant bestBid <= mid <= bestAsk holds across every fixture row",
+    "behavior": "for each pool inner-state fixture row, the computed mid-price lies between the fixture's best bid and best ask (inclusive); a property-style assertion enforces this invariant and prevents weakening to a one-sided check",
+    "kind": "property",
+    "target_file": "independent/01-market-stats/src/marketStats.ts",
+    "test_file": "independent/01-market-stats/tests/marketStats.test.ts",
+    "covers_contract_requirement": "AC1.4"
+  },
+  {
+    "id": "T-007",
+    "name": "computeMarketStats handles a pool with an empty bid book without throwing",
+    "behavior": "given an inner-state fixture with an empty bid ladder (only asks present), computeMarketStats returns a degraded-but-defined result (e.g. mid undefined or null, spread undefined, ask-side depth still computed) and does not throw, so the card can render a graceful sentinel",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/marketStats.ts",
+    "test_file": "independent/01-market-stats/tests/marketStats.test.ts",
+    "covers_contract_requirement": "AC1.4"
+  },
+  {
+    "id": "T-008",
+    "name": "depth-at-+/-1% sums only ladder levels strictly within the +/-1% window of mid",
+    "behavior": "given a fixture inner-state where some ladder levels sit inside +/-1% of mid and others outside, the depth function sums quantities only from the in-window levels and excludes the outside-window levels",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/marketStats.ts",
+    "test_file": "independent/01-market-stats/tests/marketStats.test.ts",
+    "covers_contract_requirement": "AC1.4"
+  },
+  {
+    "id": "T-009",
+    "name": "aggregateFills computes 24h volume from a captured event-page fixture",
+    "behavior": "given a captured fill-event page fixture (sourced from notes/chain-shape.md) with timestamps spanning more than 24 hours, the aggregator returns a 24h volume that sums only fill quantities whose event timestamps fall within the rolling 24h window relative to a fixed clock",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/fillAggregator.ts",
+    "test_file": "independent/01-market-stats/tests/fillAggregator.test.ts",
+    "covers_contract_requirement": "AC1.5"
+  },
+  {
+    "id": "T-010",
+    "name": "aggregateFills returns the last 50 trades as the sparkline series in chronological order",
+    "behavior": "given a captured fill-event page fixture with more than 50 fills, the aggregator returns a sparkline series of exactly 50 entries ordered oldest-to-newest (or newest-to-oldest, fixed by the function's contract) drawn from the most recent 50 fills only",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/fillAggregator.ts",
+    "test_file": "independent/01-market-stats/tests/fillAggregator.test.ts",
+    "covers_contract_requirement": "AC1.5"
+  },
+  {
+    "id": "T-011",
+    "name": "aggregateFills returns a sparkline of fewer than 50 entries when input is sparse",
+    "behavior": "given a captured fill-event page fixture with fewer than 50 fills, the aggregator returns a sparkline series whose length equals the input fill count and the consumer can render it without padding or throwing",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/fillAggregator.ts",
+    "test_file": "independent/01-market-stats/tests/fillAggregator.test.ts",
+    "covers_contract_requirement": "AC1.5"
+  },
+  {
+    "id": "T-012",
+    "name": "aggregateFills derives last-price from the most recent fill in the event stream",
+    "behavior": "given a captured fill-event page fixture, the aggregator returns a last-price equal to the price of the chronologically newest fill in the input set",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/fillAggregator.ts",
+    "test_file": "independent/01-market-stats/tests/fillAggregator.test.ts",
+    "covers_contract_requirement": "AC1.3"
+  },
+  {
+    "id": "T-013",
+    "name": "fill-event fetcher paginates suix_queryEvents calls until the 24h window or 50-fill cap is satisfied",
+    "behavior": "given a mocked SuiClient.queryEvents that returns multi-page results with hasNextPage and nextCursor, the fetcher issues subsequent paginated calls until either the rolling 24h window is fully covered or the most recent 50 fills are collected, then stops; it never queries beyond what is needed",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/fillFetcher.ts",
+    "test_file": "independent/01-market-stats/tests/fillFetcher.test.ts",
+    "covers_contract_requirement": "AC1.5"
+  },
+  {
+    "id": "T-014",
+    "name": "outbound HTTP only targets Sui RPC :9000 JSON-RPC methods, never indexer pool-keyed routes",
+    "behavior": "with global fetch (and any underlying transport) intercepted, exercising the SPA's data layer end-to-end against fixture inputs results in outbound URLs limited to http://127.0.0.1:9000 (or the configured RPC base) for sui_getObject / suix_queryEvents JSON-RPC calls; no request is made to any URL on :9008 ending in /get_pools, /orderbook, /trades, or /ticker",
+    "kind": "integration",
+    "target_file": "independent/01-market-stats/src/dataLayer.ts",
+    "test_file": "independent/01-market-stats/tests/networkShape.test.ts",
+    "covers_contract_requirement": "AC1.5"
+  },
+  {
+    "id": "T-015",
+    "name": "PoolCard renders all six labeled statistics for a single pool",
+    "behavior": "given fixture pool data containing pre-computed values, the PoolCard component renders six labeled fields (24h volume, last price, mid-price, bid/ask spread, depth at +/-1% from mid, sparkline) and each label is queryable by accessible text in the rendered output",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/components/PoolCard.tsx",
+    "test_file": "independent/01-market-stats/tests/PoolCard.test.tsx",
+    "covers_contract_requirement": "AC1.3"
+  },
+  {
+    "id": "T-016",
+    "name": "PoolCard renders sentinel text for fields with undefined values rather than crashing",
+    "behavior": "given fixture pool data where mid-price and spread are undefined (e.g. empty bid book), PoolCard still renders all six labeled fields and shows a sentinel placeholder for the undefined values without throwing or producing console errors",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/components/PoolCard.tsx",
+    "test_file": "independent/01-market-stats/tests/PoolCard.test.tsx",
+    "covers_contract_requirement": "AC1.3"
+  },
+  {
+    "id": "T-017",
+    "name": "App renders exactly N PoolCards for a fixture manifest with N pool entries",
+    "behavior": "given a fixture manifest containing N pool entries and a stubbed data layer that returns precomputed per-pool stats, the App component renders exactly N PoolCard instances; the count matches the manifest one-for-one",
+    "kind": "integration",
+    "target_file": "independent/01-market-stats/src/App.tsx",
+    "test_file": "independent/01-market-stats/tests/App.test.tsx",
+    "covers_contract_requirement": "AC1.2"
+  },
+  {
+    "id": "T-018",
+    "name": "App mounts without console errors when the manifest is reachable",
+    "behavior": "with a fixture manifest reachable via the stubbed loader and the data layer stubbed to resolve, the App root component mounts and a spy on console.error records zero calls during mount and initial paint",
+    "kind": "integration",
+    "target_file": "independent/01-market-stats/src/App.tsx",
+    "test_file": "independent/01-market-stats/tests/App.test.tsx",
+    "covers_contract_requirement": "AC1.1"
+  },
+  {
+    "id": "T-019",
+    "name": "App renders an actionable inline error when the manifest is missing",
+    "behavior": "with the manifest loader stubbed to throw a missing-manifest error, the App component renders an inline error UI whose visible text references the sandbox boot command (or otherwise points the user at the bootstrap recipe) and does not render any PoolCard",
+    "kind": "integration",
+    "target_file": "independent/01-market-stats/src/App.tsx",
+    "test_file": "independent/01-market-stats/tests/App.test.tsx",
+    "covers_contract_requirement": "AC1.1"
+  },
+  {
+    "id": "T-020",
+    "name": "App renders an actionable inline error when the Sui RPC is unreachable",
+    "behavior": "with the data layer stubbed to throw a network error from sui_getObject, the App component renders an inline error UI whose visible text mentions the Sui RPC endpoint or a bootstrap recipe and does not crash the React tree",
+    "kind": "integration",
+    "target_file": "independent/01-market-stats/src/App.tsx",
+    "test_file": "independent/01-market-stats/tests/App.test.tsx",
+    "covers_contract_requirement": "AC1.1"
+  },
+  {
+    "id": "T-021",
+    "name": "notes/chain-shape.md exists and contains both a pool inner-state capture and a fill-event capture",
+    "behavior": "the file independent/01-market-stats/notes/chain-shape.md exists on disk and its content includes recognizable markers for a pool inner-state capture (e.g. references to bid/ask book fields or sui_getObject) and for a fill-event capture (e.g. references to suix_queryEvents and event payload fields)",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/notes/chain-shape.md",
+    "test_file": "independent/01-market-stats/tests/chainShape.test.ts",
+    "covers_contract_requirement": "AC1.6"
+  },
+  {
+    "id": "T-022",
+    "name": "TypeScript types in src reference notes/chain-shape.md as their derivation source",
+    "behavior": "at least one TypeScript source file under independent/01-market-stats/src/ that defines a chain-shape-derived type (e.g. PoolInnerState or FillEvent) contains a doc-comment or import-adjacent comment that names notes/chain-shape.md, evidencing that types were derived from the captured shapes rather than guessed",
+    "kind": "unit",
+    "target_file": "independent/01-market-stats/src/types.ts",
+    "test_file": "independent/01-market-stats/tests/chainShape.test.ts",
+    "covers_contract_requirement": "AC1.6"
+  }
+]

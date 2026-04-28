@@ -1,0 +1,93 @@
+[
+  {
+    "id": "R5-001",
+    "title": "T-009 never invokes the trigger-submission code path it claims to lock down",
+    "severity": "high",
+    "category": "tests-vs-impl",
+    "file": "independent/03-tpsl-vault/keeper/tests/networkShape.test.ts",
+    "line_range": "144-173",
+    "description": "T-009's stated purpose (per its file header) is to assert that 'every captured fetch URL targets ... rpcUrl OR faucetUrl' and 'NEVER contains the forbidden Cycle 1 indexer fragments' — exercised through the runOnePollCycle test seam. But runOnePollCycle in src/index.ts (line 191 comment: 'in runOnePollCycle (test seam), we skip submission') deliberately stops short of calling signAndSubmitTrigger, even when a vault is registered and a trigger reason fires. Worse, the FIXTURE_MANIFEST yields zero VaultCreated events (suix_queryEvents canned response: data: []), so registry.iterate() yields zero vaults and the price-trigger loop body is also entirely skipped. The only fetches actually issued are: 1× suix_queryEvents + 2× sui_getObject (Pyth init shared version) + 2× sui_devInspectTransactionBlock (Pyth read). The signAndSubmitTrigger function — which would be the natural site for a DeepBook indexer leak — is never reached. A regression that makes signAndSubmitTrigger POST to ':9008/orderbook/' would pass T-009 cleanly.",
+    "impact": "T-009 is the only AC3.7 'no DeepBook indexer dependency' guardrail in the suite. Its current shape proves only that the discovery+Pyth-read paths are clean; the trigger-submit path (the most likely place for an SDK helper to sneak in a DeepBook route) is unmeasured. This is a Cycle 1 R5-001 / 'structural fix that doesn't actually wire through' regression class, exactly the failure mode the contract's Implementation Guidance section calls out as load-bearing.",
+    "recommendation": "Either (a) extend runOnePollCycle to accept an optional injected signer so the test seam can drive the full discover→evaluate→submit path with a vault planted in the registry, OR (b) add a second test that drives signAndSubmitTrigger directly with the same fetch spy and asserts the same allowed-host / forbidden-fragment lockdown. Also seed at least one VaultCreated event into the canned suix_queryEvents response so the trigger-evaluation branch executes (currently registry.iterate() yields nothing, so even the in-loop calculateBaseQuotePrice / evaluateTrigger / logTriggerAttempt path is never hit).",
+    "evidence": "// Note: trigger submission requires a signer, which is only available\n    // in the full boot path. In runOnePollCycle (test seam), we skip submission.",
+    "confidence": "high"
+  },
+  {
+    "id": "R5-002",
+    "title": "Production main() never wires trigger submission — buildTriggerTransaction / signAndSubmitTrigger / logTriggerFired / logTriggerFailed all dead",
+    "severity": "high",
+    "category": "tests-vs-impl",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_range": "183-193",
+    "description": "Inside runOnePollCycle, when evaluateTrigger returns shouldFire=true, the code emits logTriggerAttempt and then... stops. There is no call to buildTriggerTransaction, no call to signAndSubmitTrigger, no logTriggerFired, no logTriggerFailed, no markTriggered. Grep confirms: across all of src/, signAndSubmitTrigger is only IMPORTED (line 18); it is never INVOKED. Same for buildTriggerTransaction. Same for logTriggerFired and logTriggerFailed. seedTriggeredFromChain is also never invoked from production code. The 'main()' loop (line 327) only calls runOnePollCycle, which only logs trigger_attempt and continues — no actual fire ever happens. AC3.10 ('on fire, it builds and submits a transaction') is therefore unsatisfied at runtime; the unit tests T-006, T-002 (markTriggered/seed), and the trigger_fired/trigger_failed branches of T-007 verify code that lives in modules production never calls.",
+    "impact": "The keeper as built CANNOT fire triggers. It will log trigger_attempt forever and never call execute_trigger on chain. AC3.10 fails end-to-end, AC3.12 (keeper-side prerequisites) fails (no tx_digest exists to verify), and E-007 ('keeper firing the trigger between steps 2 and 4') fails the moment an operator runs it against the live sandbox. The unit tests pass because they exercise the dead modules in isolation; this is exactly the 'tests pass on a fake stub' tautology the tests-vs-impl lens exists to detect.",
+    "recommendation": "After the logTriggerAttempt call in runOnePollCycle (or, more cleanly, in main()'s wrapper around runOnePollCycle), build the PTB via buildTriggerTransaction, sign+submit via signAndSubmitTrigger using the keeper's ephemeral keypair, on success call registry.markTriggered + logTriggerFired with the on-chain TriggerFired event payload, on failure call logTriggerFailed with the abort code. Then add a vitest-driven integration test that drives runOnePollCycle with a registry pre-seeded with a triggerable vault, asserts logTriggerFired was called with a tx_digest, and asserts the spy captured a sui_executeTransactionBlock POST.",
+    "evidence": "    // Note: trigger submission requires a signer, which is only available\n    // in the full boot path. In runOnePollCycle (test seam), we skip submission.\n  }\n}",
+    "confidence": "high"
+  },
+  {
+    "id": "R5-003",
+    "title": "T-006 amendment changed the test input to match a comment — the comment was right, but no test pins the SDK's u64 LE encoding for the original 32_404_071 value",
+    "severity": "low",
+    "category": "tests-vs-impl",
+    "file": "independent/03-tpsl-vault/keeper/tests/triggerSubmitter.test.ts",
+    "line_range": "46-89",
+    "description": "Per synthesis-notes.md, T-006's input value was amended from 32_404_071 (the value priceModel computes from the DEEP/SUI live capture in T-005) to 32_414_055 because the asserted bytes on line 89 are 0x67 0x99 0xee 0x01 = 0x01EE9967 = 32_414_055 (verified). The test is still meaningful — it pins that tx.pure.u64(N) emits 8-byte LE for some value of N. However, the input no longer corresponds to ANY priceModel output the rest of the suite computes; the chain of evidence 'Pyth bytes → priceModel → triggerSubmitter PTB' is broken. T-005 pins priceModel for the DEEP/SUI live shape to 7_142_857n, T-006 pins triggerSubmitter for 32_414_055n — those are unrelated numbers, and no test verifies that priceModel's output (whatever it actually is in production) is correctly forwarded into the PTB by the calling code. (Indeed, runOnePollCycle never calls triggerSubmitter at all per R5-002, so there is no production caller to test against.)",
+    "impact": "The test still catches a u64 LE serialization regression for the literal 32_414_055, but the 'price flowing end-to-end through the keeper' guarantee that the suite appears to provide is illusory. A bug that swapped the currentPrice argument with deepPerTrigger in buildTriggerTransaction's call site (no such call site exists today, but the moment R5-002 is fixed, one will) would not be caught.",
+    "recommendation": "When R5-002 is fixed and runOnePollCycle calls buildTriggerTransaction, add an assertion that the resulting PTB's pure.u64 arg for current_price equals exactly the value calculateBaseQuotePrice produced. Alternatively, in T-006, parameterize the input by computing it from a calculateBaseQuotePrice fixture call so the two tests share the same arithmetic.",
+    "evidence": "      currentPrice: 32_414_055n,  // orchestrator-amended: original 32_404_071 didn't match the comment's hex on line 88 (0x01EE9967 = 32_414_055)",
+    "confidence": "high"
+  },
+  {
+    "id": "R5-004",
+    "title": "T-009 fetch spy returns identical canned BCS for DEEP and SUI Pyth reads — magnitude collision passes silently",
+    "severity": "low",
+    "category": "tests-vs-impl",
+    "file": "independent/03-tpsl-vault/keeper/tests/networkShape.test.ts",
+    "line_range": "109-117",
+    "description": "The spy returns the same 34-byte BCS payload for every sui_devInspectTransactionBlock call regardless of which PriceInfoObject was requested. The green log confirms: poll_cycle line shows DEEP and SUI both with magnitude 3058022 and exponent -8 (DEEP price reused for SUI). The test is intentionally about 'outbound HTTP shape' so this works for its narrow purpose, but it means the test cannot detect a regression where the keeper accidentally passes the DEEP PriceInfoObject ID for both Pyth reads (and never reads SUI at all). The only line that distinguishes which oracle was read is the URL/body content, not the response.",
+    "impact": "Low — the test's stated purpose is HTTP-shape lockdown, not price-correctness. But anyone reading the green log might be misled into thinking the keeper successfully read both oracles distinctly, when in fact the canned data masks an entire class of pool-routing bugs.",
+    "recommendation": "Inspect the request body for the priceInfoObjectId argument and return DEEP-shape bytes for the DEEP oracle ID, SUI-shape bytes for the SUI oracle ID. Then add an assertion that priceResults contains two distinct magnitudes (3_058_022n and 94_371_860n per the live captures in notes/pyth-shape.md). This costs ~10 lines and converts a tautology into a real check.",
+    "evidence": "if (method === 'sui_devInspectTransactionBlock') {\n      // Return a 34-byte BCS price (DEEP live capture) as base64.\n      const bytes = [0,102,169,46,0,0,0,0,0,95,29,0,0,0,0,0,0,1,8,0,0,0,0,0,0,0,250,156,238,105,0,0,0,0];",
+    "confidence": "high"
+  },
+  {
+    "id": "R5-005",
+    "title": "T-001 missing-field tests do not cover normalize-hex path on uppercase / no-prefix input",
+    "severity": "low",
+    "category": "tests-vs-impl",
+    "file": "independent/03-tpsl-vault/keeper/tests/vaultRegistry.test.ts",
+    "line_range": "63-89",
+    "description": "T-001's behavior text demands: 'vault_id and pool_id are normalized 0x-prefixed lowercase hex'. The fixtures pre-supply already-lowercase 0x-prefixed values (`'0xabc123' + 'a'.repeat(58)`) — so the normalizeHex code path that lowercases an uppercase address, or that prepends '0x' when the chain returns the bare hex, is never actually exercised. parseVaultCreatedEvent's call to normalizeHex on rawVaultId / rawOwner / rawPoolId could be entirely deleted (returning the raw string back) and the existing test would still pass; the lowercase + 0x-prefix assertions on lines 66-69 trivially hold for input that is already lowercase + 0x-prefixed. The 'side: 1 is preserved' test does pin the type-coerce, but the hex-normalize path is untested.",
+    "impact": "Low — Sui's parsedJson convention is to emit lowercase 0x-prefixed addresses anyway, so a regression that breaks the normalize path is unlikely to bite in production. But the test claims to verify the normalization and does not.",
+    "recommendation": "Add two cases: (a) tpslEvent({ vault_id: '0xABC123' + 'A'.repeat(58) }) and assert the parsed vault_id is the lowercase form; (b) tpslEvent({ owner: 'deadbeef' + 'b'.repeat(56) }) (no 0x prefix) and assert the parsed owner starts with '0x'. Three lines each.",
+    "evidence": "expect(v.vault_id).toBe(VAULT_ID.toLowerCase());\n    expect(v.vault_id.startsWith('0x')).toBe(true);",
+    "confidence": "medium"
+  },
+  {
+    "id": "R5-006",
+    "title": "T-003 has no oversized-BCS fixture; trailing-bytes attacker payload silently parses as a valid price",
+    "severity": "low",
+    "category": "tests-vs-impl",
+    "file": "independent/03-tpsl-vault/keeper/tests/pythReader.test.ts",
+    "line_range": "123-126",
+    "description": "T-003 covers a too-short (33 byte) input that throws, and the BCS-positive / negative / negative-price-abort cases. It does NOT cover the symmetric oversized case: a 50-byte input where the first 34 bytes are a valid price and the remaining 16 are garbage. parsePriceFromBcs's guard is `if (bytes.length < PRICE_BCS_LENGTH) throw` — strictly less-than, so a 50-byte input passes the guard and decodes the leading 34 bytes as a price, silently ignoring the trailing garbage. This is probably fine on the happy path (devInspect returns exactly 34 bytes), but a malformed Pyth response or a spec change to wrap the price in a different envelope would parse silently as the wrong thing.",
+    "impact": "Low — production Pyth devInspect returns exactly 34 bytes today. But the test promises a coverage envelope it does not actually deliver: 'truncated BCS' is covered, 'oversized BCS' (defense in depth) is not.",
+    "recommendation": "Either add a fixture with 50 bytes that asserts parsePriceFromBcs throws (tightening the guard to ===) or asserts it returns the leading-34-byte interpretation (documenting the lenient-parse behavior). Either is fine — the choice should be explicit, not accidental.",
+    "evidence": "  it('rejects too-short input rather than reading past the buffer', () => {\n    const truncated = new Uint8Array(33); // 1 byte short\n    expect(() => parsePriceFromBcs(truncated)).toThrow();\n  });",
+    "confidence": "medium"
+  },
+  {
+    "id": "R5-007",
+    "title": "No test exercises AC3.12 step 7 owner-routed output verification — keeper-side prerequisite is unproven by the suite",
+    "severity": "medium",
+    "category": "tests-vs-impl",
+    "file": "independent/03-tpsl-vault/keeper/tests/triggerSubmitter.test.ts",
+    "line_range": "100-184",
+    "description": "AC3.12 step 7 (contract.md lines 743-766) is called out as a 'keeper-side prerequisite for the spec's output coin routed to the owner obligation'. The verification path: read the trigger transaction's owned-objects diff via sui_getTransactionBlock and confirm Coin<Quote>, Coin<Base> residual, Coin<DEEP> residual all owned by vault.owner (NOT the keeper's address). The keeper's TriggerFired event-extraction code in signAndSubmitTrigger (lines 165-181) reads the event payload but does NOT read or verify ownership of the residual coins. No test asserts the keeper extracts the right field set from TriggerFired (the test that does test logTriggerFired in T-007 just verifies the logger writes its inputs — it does not verify those inputs are correctly extracted from the on-chain event). This is the classic 'pure-function tested, integration with on-chain shape untested' gap the contract calls out.",
+    "impact": "Medium — without an end-to-end test that drives signAndSubmitTrigger against a recorded sui_executeTransactionBlock response and asserts the extracted TriggerFired payload field-by-field, AC3.12 step 7 cannot be claimed by this cycle's test suite. It is technically deferrable to manual operator verification (the contract's wording allows that for the live-sandbox half), but the 'keeper extracts the event correctly' half is unit-testable today and isn't tested.",
+    "recommendation": "Add a vitest unit test for signAndSubmitTrigger with a fetch spy that returns a canned sui_executeTransactionBlock response containing a TriggerFired event with known field values; assert the returned TriggerFiredEventPayload has each field extracted correctly. This also gives R5-001's 'second test for signAndSubmitTrigger' a natural home.",
+    "evidence": "      triggerFired = {\n        vault_id: String(pj['vault_id'] ?? ''),\n        owner: String(pj['owner'] ?? ''),\n        current_price: String(pj['current_price'] ?? '0'),",
+    "confidence": "high"
+  }
+]

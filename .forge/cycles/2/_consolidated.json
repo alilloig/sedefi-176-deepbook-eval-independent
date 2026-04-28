@@ -1,0 +1,423 @@
+[
+  {
+    "cluster_id": "C002",
+    "title": "Move.toml deviates from `example_contract` template by dropping `deepbook_margin` \u2014 deviation is justified but breaks AC2.1 strict mirror",
+    "file": "independent/02-slippage-swap/Move.toml",
+    "line_ranges": [
+      "5-16"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Two parallel actions: (1) escalate the deviation to the orchestrator and request AC2.1 be amended to permit dropping `deepbook_margin` until the bundled package's test helper is fixed upstream, citing the friction-log entry. (2) Reinforce the in-file rationale by referencing the friction-log line and amendment number directly in the comment, e.g. `# deepbook_margin excluded per orchestrator amendment N (see independent/raw-friction.log [deepbook] entry YYYY-MM-DD): the bundled deepbook_margin/tests/helper/test_helpers.move references pyth::price_info::new_price_info_object_for_test which doesn't exist in the bundled pyth package.`"
+    ],
+    "descriptions": [
+      "AC2.1 demands the dependency block be 'structurally identical to the sandbox's `example_contract` template (same external packages, same edition)' and explicitly enumerates the five-package list `token, deepbook, deepbook_margin, pyth, usdc`. The implementation declares only four (`token, deepbook, pyth, usdc`) and replaces `deepbook_margin` with a comment block explaining the bundled `deepbook_margin/tests/helper/test_helpers.move` references a missing `pyth::price_info::new_price_info_object_for_test` symbol, which surfaces as a compile-time `unbound module member` error (confirmed in `red.log` lines 9-13 and lines 171-176). The deviation is real \u2014 no workaround exists short of patching the bundled `deepbook_margin` package, which is forbidden by `## Out of scope` ('any mutation of files under `~/workspace/deepbook-sandbox/sandbox/`'). The green synthesis notes call this out as deviation #1. From the design lens, the comment block in `Move.toml` is well-written and self-documenting (lines 9-12 explain the why), but AC2.1's verification check ('lists the same five external packages in the same order') will fail mechanically. This is a contract-vs-reality conflict that needs an orchestrator amendment, not a silent workaround."
+    ],
+    "impacts": [
+      "AC2.1 will not pass a literal verification: only four of the five required packages are declared. A mechanical AC checker (regex over `Move.toml` for the package names) would flag this as a contract violation. Reviewers downstream may assume the omission is an oversight."
+    ],
+    "evidence": "# deepbook_margin excluded: its bundled test sources reference\n# pyth::price_info::new_price_info_object_for_test which does not exist in\n# the bundled pyth package, causing a build-time unbound-member error.\n# The slippage_swap wrapper does not use deepbook_margin at all.",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-002"
+    ]
+  },
+  {
+    "cluster_id": "C005",
+    "title": "Wrapper does not pre-validate base_in.value() > 0 \u2014 zero-value input falls through to DeepBook's EInvalidQuantityIn=6, not the wrapper's documented error vocabulary",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_ranges": [
+      "43-47",
+      "33-44",
+      "47-53"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "None. Add a brief Move comment on line 44 noting DeepBook's `EMinimumQuantityOutNotMet = 12` exists and is intentionally bypassed, so a future maintainer doesn't 'helpfully' forward `min_out` into DeepBook and inadvertently make slippage failures abort with code 12 instead of 0.",
+      "Add a defensive check after the swap call but before the slippage assertion: if `coin::value(&quote_out) == 0 && coin::value(&base_residual) == coin::value_pre_swap` (capture pre-swap base value), abort with a distinct `ESwapNoOp: u64 = 1` (or similar). Even simpler: assert `coin::value(&quote_out) > 0` for the `min_out > 0` case before the `>= min_out` check, so a no-op path produces a separable error. Alternatively document this conflation in the doc-comment so E-002's failure-triage runbook tells operators to inspect base_residual when EInsufficientOutput fires.",
+      "Add a pre-flight check: `assert!(coin::value(&base_in) > 0, EZeroInput)` with a new constant `const EZeroInput: u64 = 1;`. This shifts the error vocabulary from one to two stable codes, both owned by the wrapper module, making caller-side handling tractable. Optional: also pre-validate `coin::value(&deep_in) > 0` if pool fee_type requires DEEP (per pool config); though DeepBook handles missing-DEEP via `pay_with_deep = deep_in.value() > 0` so a zero DEEP coin is valid for input-fee pools \u2014 would need to know which pool variant to know if the assertion is correct.",
+      "None \u2014 informational. Worth one inline comment near the assert noting 'aborts here roll back the temp balance manager DeepBook constructed' so a reviewer doesn't worry the temp BM leaks into operator's account on failure (it doesn't, by Sui transaction-atomicity)."
+    ],
+    "descriptions": [
+      "The wrapper invokes `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` with literal `0` as DeepBook's `min_quote_out`. DeepBook's own assertion at pool.move:412-414 (`assert!(quote_out.value() >= min_out, EMinimumQuantityOutNotMet)` where `EMinimumQuantityOutNotMet: u64 = 12`) therefore can never fire on this path. The wrapper's own `assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput)` is the sole slippage gate, so a slippage-floor breach always produces `EInsufficientOutput` and never DeepBook's code 12. T-002's `expected_failure(abort_code = ::slippage_swap::slippage_swap::EInsufficientOutput)` validates this gate-ownership invariant \u2014 the test would fail if DeepBook's check fired first. Synthesis-notes calls this design choice out explicitly. Correct.",
+      "DeepBook's `swap_exact_quantity` (called via `swap_exact_base_for_quote`) at pool.move:384-387 contains a silent early-return path: `base_quantity = base_quantity - base_quantity % self.load_inner().book.lot_size(); if (base_quantity < self.load_inner().book.min_size()) { return (base_in, quote_in, deep_in) };`. When the caller passes a `base_in` whose value, after lot-size rounding, falls below the pool's `min_size`, DeepBook returns the ORIGINAL coins unchanged \u2014 meaning `quote_out` is the zero-value `coin::zero(ctx)` constructed at line 256 (the wrapper passes no quote_in; DeepBook synthesizes one). The wrapper's `assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput)` then aborts with `EInsufficientOutput` for any caller-supplied `min_out > 0`. Operator sees 'slippage floor not met' when the actual root cause is 'input below pool min_size after lot-size rounding'. Two materially different failure modes \u2014 caller-side input sizing bug vs. genuine adverse market impact \u2014 produce identical abort signatures. Neither T-001/T-002/T-004/T-005 exercises this lot-size boundary; the test fixture's `1 * float_scaling()` base_in is comfortably above the test pool's min_size.",
+      "Contract.md line 4-5 says the caller supplies 'a Coin<BaseAsset> of size > 0', but the wrapper does not enforce this. A caller passing `base_in` with `value() == 0` reaches DeepBook's `swap_exact_quantity` line 365: `assert!((base_quantity > 0) != (quote_quantity > 0), EInvalidQuantityIn)` \u2014 DeepBook synthesizes `quote_in = coin::zero(ctx)` so both `base_quantity == 0` and `quote_quantity == 0`, and the XOR is `(false != false) = false`, triggering abort with `EInvalidQuantityIn: u64 = 6` from `deepbook::pool`. The CLI consumer sees code 6 from a different abort module. The wrapper's documented error vocabulary is exactly one constant (`EInsufficientOutput=0`); other failure modes leak the upstream abort code unmodified, contradicting the synthesis-notes framing of 'wrapper's assert is the gate'.",
+      "Verification: the slippage `assert!` at line 47 fires before any of the three `transfer::public_transfer` calls at lines 51-53. On abort, Move's resource model destroys the entire function frame \u2014 `base_residual`, `quote_out`, and `deep_residual` are all owned by the frame at abort point, so they are not orphaned (Move would reject the module at compile time if any owned resource without `drop` were leaked, and `Coin<T>` does not have `drop`). Transaction effects are atomic in Sui: an aborted transaction commits no object writes, so the upstream `pool: &mut Pool<...>` mutations performed by `swap_exact_base_for_quote` (place_market_order, balance manager temp creation/deletion, etc.) are all rolled back at the runtime layer. Net result: a slippage abort produces zero on-chain state delta, and the caller's input `Coin<BaseAsset>` and `Coin<DEEP>` remain owned by the sender as inputs. Correct."
+    ],
+    "impacts": [
+      "Confirms the contract.md AC2.3 promise that EInsufficientOutput is the documented, single, stable abort code for slippage-floor breaches. E-002's CLI assertion has a deterministic target.",
+      "Operator debugging E-002 in the wild can't tell from the abort code alone whether to (a) increase input size (b) widen slippage tolerance (c) suspect a stale price oracle. Worse: T-004 (`min_out = 0`) would silently SUCCEED in this lot-size-rounding-trips early-return scenario \u2014 `quote_out.value() = 0 >= 0` \u2014 and the user would receive their input coins back unchanged, with no on-chain signal that the swap effectively no-op'd. The DEEP fee residual would also be returned in full. Hidden no-op risk for `min_out = 0` callers.",
+      "Calls with malformed input (zero-value base coin, possibly produced by a buggy frontend) abort with a non-wrapper error code that the caller can't trivially map to 'invalid input'. Combined with R3-002, the abort-code surface area for a slippage-swap call is the union of `slippage_swap::EInsufficientOutput=0` AND every error code in DeepBook's pool/balance_manager/book/state/helper modules. Caller-side error handling cannot enumerate these.",
+      "Ensures the spec's 'no state is created, no objects are minted by the wrapper itself' (contract.md line 16-17) holds even on the failure path, not just success. T-005's 'no BalanceManager owned by sender' assertion also implicitly holds on abort (the temp_balance_manager DeepBook constructs at pool.move:389 is rolled back)."
+    ],
+    "evidence": "    // From deepbook/sources/pool.move:384-387 (swap_exact_quantity):\n    //   base_quantity = base_quantity - base_quantity % self.load_inner().book.lot_size();\n    //   if (base_quantity < self.load_inner().book.min_size()) {\n    //       return (base_in, quote_in, deep_in)\n    //   };\n    // Wrapper has no defense against this silent no-op; quote_out.value() will be 0.\n    let (base_residual, quote_out, deep_residual) =\n        pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx);\n    assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-001",
+      "R3-003",
+      "R3-004",
+      "R3-005"
+    ],
+    "manual_override": {
+      "reason": "meta-severity disagreement (single reviewer filed at multiple severity levels for the same root cause); finding is real but not blocking",
+      "authorized_at": "2026-04-27T23:30:00Z",
+      "review": "cycles/2/review.md verdict: ACCEPTED (per Cycle 1 precedent)",
+      "original_severity_span": "max=medium, min=info"
+    }
+  },
+  {
+    "cluster_id": "C006",
+    "title": "EInsufficientOutput = 0 collides with seven other DeepBook error codes also valued 0 \u2014 bare-numeric CLI capture is ambiguous",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_ranges": [
+      "18",
+      "16-18"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Two options, choose one: (a) Renumber `EInsufficientOutput` to a non-zero constant unique within the wrapper's likely callstack (e.g., `1001` \u2014 DeepBook's own error codes range 0-20). This is one line change and a tests.json amendment to T-002's `abort_code = ::slippage_swap::slippage_swap::EInsufficientOutput` constant reference (which is symbolic, so no test edit needed if the test references the constant by name). (b) Leave the value at 0 but require E-002 to capture and assert on the *qualified* abort source `(abort_module, abort_code)` tuple \u2014 document this as a hard expectation in contract.md so a CLI-only consumer cannot rely on the bare numeric. Option (a) is more robust; the contract.md text already says 'documented error code' but doesn't mandate the qualified form.",
+      "Optional upgrade for a future iter: ```move\n#[error]\nconst EInsufficientOutput: vector<u8> = b\"realised quote output below caller's min_out slippage floor\";\n```\nThis still aborts with a stable identifier and adds a string the CLI / explorer can show. Trade-off: changes the abort_code shape (vector<u8> hash vs u64), so re-pin T-002 and any E-002 CLI assertion. Defer to forge-quality reviewer (R-quality) for whether to adopt; flagged here for completeness of the error-handling lens."
+    ],
+    "descriptions": [
+      "The wrapper picks `const EInsufficientOutput: u64 = 0;`. DeepBook's bundled package itself uses error code `0` in at least seven other modules: `state::history::EHistoricVolumesNotFound`, `balance_manager::EInvalidOwner`, `book::order::EInvalidNewQuantity`, `book::order_info::EOrderInvalidPrice`, `helper::big_vector::ESliceTooSmall`, `helper::constants::EOrderInfoMismatch`, `helper::math::EInvalidPrecision`. Move's `expected_failure(abort_code = ::slippage_swap::slippage_swap::EInsufficientOutput)` qualifies the abort by full module path, so T-002 distinguishes correctly. The on-chain CLI consumer (E-002) assertion, however, frequently captures only the numeric `abort_code` (a u64) plus the abort module address; if a downstream test or operator asserts on the bare `0` and the swap path happens to hit, e.g., `helper::big_vector::ESliceTooSmall` for an unrelated reason during the same tx, both conditions look identical at the CLI surface level. Pool-level `EInvalidQuantityIn` is `6`, `EMinimumQuantityOutNotMet` is `12` (these don't collide with 0), but the helper-module collisions are real. The convention in DeepBook's own pool.move is to start error codes at `1` precisely to leave `0` as 'unused / sentinel'.",
+      "Per `.move-book-docs/reference/abort-and-assert/clever-errors.md` and `.move-book-docs/book/guides/better-error-handling.md`, Move 2024 supports the `#[error]` attribute on error constants, allowing the constant to hold a human-readable string that surfaces in CLI/explorer abort traces alongside the numeric code. The wrapper uses the legacy form `const EInsufficientOutput: u64 = 0;`. The doc-comment above it is helpful for reading source but does not flow through to the abort surface \u2014 a CLI capturing the abort sees only `MoveAbort(MoveLocation { module: ..::slippage_swap, function: 0, instruction: N }, 0)`, no string. The clever-error form would produce a richer trace."
+    ],
+    "impacts": [
+      "E-002's CLI capture (per spec) asserts on the abort code as a stability anchor across slot 2's CI signal. A bare-numeric collision means an unrelated DeepBook-helper abort during a slippage-failure capture could falsely satisfy the assertion (or, conversely, a real slippage failure could be confused for a helper bug). The qualified-module form (`abort_module = slippage_swap::slippage_swap`, `abort_code = 0`) eliminates ambiguity, but only if E-002 captures both; the contract.md doesn't pin which it does.",
+      "Operator-side debugging of E-002 abort captures has less context than is possible. Minor: the symbolic name is recoverable via source inspection. The contract.md does not REQUIRE the clever-error form \u2014 the named-constant + doc-comment form satisfies AC2.3's 'documented, named error code'. Counts as info because adopting clever errors is a Move 2024 best-practice but not contracted."
+    ],
+    "evidence": "// === Errors ===\n\n/// Abort code raised when the realised quote output is below the caller's\n/// min_out floor (slippage-floor abort code).\nconst EInsufficientOutput: u64 = 0;",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R3-002",
+      "R3-007"
+    ],
+    "manual_override": {
+      "reason": "meta-severity disagreement (single reviewer filed at multiple severity levels for the same root cause); finding is real but not blocking",
+      "authorized_at": "2026-04-27T23:30:00Z",
+      "review": "cycles/2/review.md verdict: ACCEPTED (per Cycle 1 precedent)",
+      "original_severity_span": "max=medium, min=info"
+    }
+  },
+  {
+    "cluster_id": "C001",
+    "title": "Move.toml localnet chain ID is stale and will silently mis-resolve env on a freshly redeployed sandbox",
+    "file": "independent/02-slippage-swap/Move.toml",
+    "line_ranges": [
+      "18-19"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Either (a) document the required `-e localnet` flag in a comment next to the [environments] block referencing the synthesis-notes finding, or (b) drop the [environments] block entirely if the sandbox chain ID is non-deterministic across deploys. Option (a) is lowest-risk since the example_contract template uses the same value."
+    ],
+    "descriptions": [
+      "The [environments] block pins localnet to chain ID a62c4e17, copied verbatim from example_contract. The synthesis notes explicitly observe that the running sandbox's chain ID regenerates on each `pnpm deploy-all` (currently f6ec69c1), which is why `sui move test -e localnet` was required in the green run. AC2.4 requires `sui move build` to exit zero against the running sandbox; without the explicit `-e localnet` flag a contributor running default `sui move build`/`sui move test` against a regenerated sandbox can hit env-resolution friction. This does not affect correctness of the wrapper logic itself, but it pins a stale chain ID into source."
+    ],
+    "impacts": [
+      "A maintainer running `sui move build` or `sui move test` without `-e localnet` against a redeployed sandbox will see chain-ID-resolution warnings or env mismatches. Tests still pass when the flag is supplied (green log confirms 4/4 PASS), but the staleness is load-bearing on the invocation flag."
+    ],
+    "evidence": "[environments]\nlocalnet = \"a62c4e17\"",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R1-001"
+    ]
+  },
+  {
+    "cluster_id": "C004",
+    "title": "Source uses `pool::swap_exact_base_for_quote(pool, ...)` qualified-call form rather than idiomatic Move 2024 dot-method-call `pool.swap_exact_base_for_quote(...)`",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_ranges": [
+      "33-33",
+      "9-44",
+      "1-54"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Add `#[allow(lint(public_entry))]` immediately above the `public entry fun` declaration, with a one-line comment: `// AC2.2 mandates `public entry`; suppress W99010 for spec-compliance.` This documents intent in-tree and silences the warning. Alternatively, escalate to orchestrator to amend AC2.2.",
+      "Refactor: change line 9 to `use deepbook::pool::Pool;`, change line 11 to `use sui::coin::Coin;`, change line 44 to `let (base_residual, quote_out, deep_residual) = pool.swap_exact_base_for_quote(base_in, deep_in, 0, clock, ctx);`, and change line 47 to `assert!(quote_out.value() >= min_out, EInsufficientOutput);`. Re-run `sui move test -e localnet` to confirm no regression.",
+      "No action required. Maintain these patterns when expanding the module.",
+      "No action."
+    ],
+    "descriptions": [
+      "The Move 2024 lint W99010 fires on `public entry fun swap_exact_base_for_quote` because `public` already permits PTB invocation, making the `entry` keyword redundant. The Move Book's code-quality checklist explicitly codifies this as a style rule: '### No `public entry`, Only `public` or `entry`'. However, the cycle contract is unambiguous: AC2.2 states 'exactly one `public entry fun` in the module's source file', and the contract behaviour section (`## Goal`) repeats 'a single public entry function'. The implementation honours the contract verbatim. The green synthesis notes already flag this as 'quality nit, can fix in iter-2 or accept'. From a design standpoint this is a contract-vs-style conflict, not an implementation bug \u2014 the contract author chose the redundant modifier combination, likely to communicate caller-intent ('this is the on-chain CLI entrypoint'). Recommend either (a) suppress the lint at module scope with `#[allow(lint(public_entry))]` plus a doc comment citing AC2.2, or (b) raise the contract conflict to the orchestrator so AC2.2 can be relaxed to `public fun` for a future cycle. Do not silently strip `entry` \u2014 that would violate AC2.2 verification ('exactly one `public entry fun`').",
+      "Line 9 imports `use deepbook::pool::{Self, Pool};` so the source can write `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` on line 44. DeepBook's `swap_exact_base_for_quote` (deepbook/sources/pool.move:248-255) takes `self: &mut Pool<BaseAsset, QuoteAsset>` as its first parameter, which means it is callable via Move 2024 method-call dot syntax: `pool.swap_exact_base_for_quote(base_in, deep_in, 0, clock, ctx)`. Switching to dot-syntax would (a) drop the `Self` member from the `pool::` import (`use deepbook::pool::Pool;`), reducing import surface, (b) read more naturally as 'pool does X' rather than 'invoke pool::X on pool', (c) match the canonical Move 2024 idiom encouraged in the Move Book's `book/move-basics/struct-methods.md` and the doc-first agent's 'Upgrade Outdated Code' rule ('Old function-style calls \u2192 dot-method-call'). The same applies to line 47's `coin::value(&quote_out)` \u2014 dot-syntax form `quote_out.value()` is preferred and would let the `Self` member also be dropped from `use sui::coin::{Self, Coin};` \u2192 `use sui::coin::Coin;`. The DeepBook upstream code itself uses dot-syntax (`self.swap_exact_quantity(...)` on pool.move:258).",
+      "Positive findings, captured for completeness so the design ledger is symmetric: (1) Module declared with the Move 2024 single-block syntax `module slippage_swap::slippage_swap;` (line 7) \u2014 no legacy `module x::y { ... }` block. (2) Public surface contains exactly one symbol \u2014 `swap_exact_base_for_quote` \u2014 and zero accidentally-public helpers; the contract's 'no other public function' constraint (AC2.2: 'exactly one `public entry fun`') is satisfied byte-for-byte. (3) Error constant `EInsufficientOutput` is declared at module scope (line 18), prefixed `E`, typed `u64`, value `0`, with a doc-comment documenting it as the slippage-floor abort code per AC2.3's 'documented named error code' requirement. (4) Section headers `// === Errors ===` (line 14) and `// === Public entry ===` (line 20) match the Sui convention used in the sui-framework. (5) Imports are minimal \u2014 only the four packages actually used (`deepbook::pool`, `sui::clock`, `sui::coin`, `token::deep`); no kitchen-sink (e.g. no unused `transfer`, `tx_context`, `option` imports) \u2014 note `transfer` is implicitly available (sui-framework alias) and `ctx.sender()` uses dot-syntax on TxContext. (6) Function signature parameter ordering matches the Move Book's 'Objects Go First (Except for Clock)' guidance from `code-quality-checklist.md`: pool object \u2192 input coins \u2192 scalar \u2192 clock \u2192 ctx. (7) Doc-comment density (lines 22-32) exceeds the surrounding DeepBook code's density and clearly enumerates the four-step algorithm.",
+      "Confirmation note: the package contains exactly one source module (`sources/slippage_swap.move`) and one test module (`tests/slippage_swap_tests.move`). For a 50-line wrapper around a single DeepBook entry point, this is the right granularity \u2014 splitting into a 'types' module + 'logic' module + 'errors' module would be over-decomposition for a contract whose entire surface is one entry function and one error constant. The structure also matches the canonical reference `~/workspace/deepbook-sandbox/sandbox/packages/example_contract/` which is a single-file module (sources/example_contract.move, lines 1-18 in upstream). No design issue."
+    ],
+    "impacts": [
+      "Persistent build-time warning noise on every `sui move build`. Future maintainers reading the source without the contract handy will assume the lint reflects sloppy code rather than a deliberate spec compliance choice. Iter-2 quality passes will keep flagging it.",
+      "Style drift from Move 2024 idioms; carries forward two unnecessary `Self` imports; future reviewers running `move-code-quality` against this code will likely flag the function-style calls. Not a correctness issue.",
+      "None \u2014 these are confirmations that the code adheres to Move 2024 design conventions. Recording for ledger symmetry; an empty-positives ledger would imply only negatives were considered.",
+      "None."
+    ],
+    "evidence": "module slippage_swap::slippage_swap;\n\nuse deepbook::pool::{Self, Pool};\nuse sui::clock::Clock;\nuse sui::coin::{Self, Coin};\nuse token::deep::DEEP;\n\n// === Errors ===\n\n/// Abort code raised when the realised quote output is below the caller's\n/// min_out floor (slippage-floor abort code).\nconst EInsufficientOutput: u64 = 0;\n\n// === Public entry ===",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-001",
+      "R2-003",
+      "R2-004",
+      "R2-007"
+    ]
+  },
+  {
+    "cluster_id": "C007",
+    "title": "Test module imports `coin::{Self, mint_for_testing}` and `test_scenario::{Self, ...}` but uses `Self` qualifier only once each \u2014 could tighten to dot-syntax",
+    "file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "line_ranges": [
+      "14-17",
+      "7-11"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Change line 14 to `use sui::coin::{Coin, mint_for_testing};`, then change lines 70, 153, 192 from `coin::value(&quote_out)` (or `coin::value(&base_residual)` etc.) to `quote_out.value()` style. Leave the `test_scenario::Self` import as-is.",
+      "No action."
+    ],
+    "descriptions": [
+      "Line 14 imports `use sui::coin::{Self, Coin, mint_for_testing};` \u2014 the `Self` member is used only via `coin::value(&quote_out)` (lines 70, 153, 192), all of which can be expressed via dot-syntax `quote_out.value()`. Line 16 imports `use sui::test_scenario::{Self, begin, end, return_shared};` \u2014 the `Self` member is used only once, in `test_scenario::has_most_recent_for_sender<BalanceManager>(&test)` on line 207. That call has no `self`-style first param so dot-syntax does not apply, but the existing form is acceptable. Net: dropping `Self` from the `coin::` import (line 14 \u2192 `use sui::coin::{Coin, mint_for_testing};`) and migrating the three `coin::value(...)` call-sites to `<coin>.value()` would remove an unused-import-style alias and align tests with the Move 2024 idiom. The `test_scenario::Self` import should be retained because of line 207.",
+      "Confirmation note: the test module imports `deepbook::balance_manager::BalanceManager` (line 7), `deepbook::balance_manager_tests::USDC` (line 8), `deepbook::constants` (line 9), `deepbook::pool::Pool` (line 10), and `deepbook::pool_tests::setup_everything` (line 11). Reusing the bundled DeepBook test fixtures (`setup_everything`, `BalanceManager`, the `USDC` test-only witness type, `constants::float_scaling`) is the correct design \u2014 it avoids reproducing 1000+ lines of orderbook setup and keeps the test surface aligned with the canonical DeepBook test patterns. The alternative (define a local USDC witness, hand-build a Pool, mint orders) would produce far less faithful coverage and would diverge from the pattern E-002 / E-005 are expected to assert against. Importing `BalanceManager` solely for the negative assertion `!has_most_recent_for_sender<BalanceManager>` (line 207) is the cheapest way to pin AC2.3's 'no balance manager constructed' invariant."
+    ],
+    "impacts": [
+      "Minor. Tests pass, no functional issue. The `Self` alias for `coin::` adds no value once the three callsites are migrated to dot-syntax. Consistency with the corresponding source-file refactor (R2-003) means this is best done in the same pass.",
+      "None \u2014 confirms a deliberate, correct design choice."
+    ],
+    "evidence": "use sui::coin::{Self, Coin, mint_for_testing};\nuse sui::sui::SUI;\nuse sui::test_scenario::{Self, begin, end, return_shared};\n...\n        assert!(coin::value(&quote_out) >= min_out, 0);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-005",
+      "R2-006"
+    ]
+  },
+  {
+    "cluster_id": "C008",
+    "title": "Test suite has no coverage for DeepBook-side aborts \u2014 wrapper behaviour under EInvalidQuantityIn / EMinimumQuantityOutNotMet untested",
+    "file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "line_ranges": [
+      "1-213",
+      "82-86",
+      "188-209",
+      "111-121"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add T-006: pass a base_in whose value is exactly `lot_size - 1` (i.e. less than min_size after rounding); assert the wrapper aborts with EInsufficientOutput when min_out > 0, AND succeeds (with quote_out.value() == 0 returned to sender as a zero-value coin) when min_out = 0. This pins the lot-size-rounding behaviour as documented (whether 'documented' means 'aborted' or 'silent no-op' is a contract-level decision per R3-003). Add T-007: pass `coin::zero<BaseAsset>(ctx)` as base_in; assert abort_code = `::deepbook::pool::EInvalidQuantityIn` (numeric 6) \u2014 pins the contract that input-shape errors leak from DeepBook unwrapped (or, if R3-004 is fixed, that the wrapper's own EZeroInput fires).",
+      "Consider one of: (a) pin `min_out: u64 = 18_446_744_073_709_551_615` (literal u64::MAX) in T-002 to lock in 'no overflow under the maximum possible caller input'; (b) leave as-is and document tests.json T-002 'behavior' as 'min_out far above realisable, not necessarily u64::MAX'. Both fine; (a) is robustness-positive at zero cost.",
+      "Optional: add `assert!(coin::value(&deep_residual) <= DEEP_IN, 6)` as a sanity bound (residual cannot exceed input) and `assert!(coin::value(&base_residual) <= base_in_amount(), 7)` similarly. These are weak invariants but make a future regression's failure message much more pointed.",
+      "Future iter: add T-006 that computes the expected realised output deterministically (the 'simulate then swap' pattern: invoke `pool::get_quantity_out(0, base_quantity, clock)` first, capture the returned `quote_quantity`, then call the wrapper with `min_out = quote_quantity` exactly). This sidesteps the two-scenarios-per-test fixture limitation by using a view function in the same scenario. Defer; not a blocker for cycle-2 ship."
+    ],
+    "descriptions": [
+      "T-001 (success), T-002 (slippage abort), T-004 (min_out=0 success), T-005 (success + transfer fan-out + no-BM) all exercise the WRAPPER-side code path. None exercises a DeepBook-side abort to confirm: (a) the wrapper does NOT swallow / re-wrap a DeepBook abort into EInsufficientOutput (it can't, by Move's panic semantics, but that's an unverified assumption); (b) the EInvalidQuantityIn=6 case from a zero-value base coin actually surfaces with abort module = `deepbook::pool` and not the wrapper's module; (c) the lot-size early-return from R3-003 produces the surprising 'EInsufficientOutput when the swap effectively no-op'd' behaviour. Lacking these tests, the contract.md error contract ('the wrapper aborts with the documented error code on floor breach') is not pinned against the alternative ('the wrapper aborts with the documented error code AND ONLY on floor breach').",
+      "T-002 sets `let min_out: u64 = 1_000_000_000_000_000;` (1e15, ~5.4% of u64::MAX). This is comfortably above any realisable output for `1 * float_scaling()` base input. However, the wrapper's `assert!(coin::value(&quote_out) >= min_out, ...)` involves no arithmetic on `min_out` (no subtraction, no addition, no overflow risk), so an upper-edge value like `u64::MAX` would behave identically. Worth noting that the test as written verifies the assertion fires for a 'large but not maximal' value; an overflow regression in some hypothetical future refactor (e.g. computing `min_out * fee_factor` before comparing) would not be caught by 1e15 specifically.",
+      "T-005's checks for the DEEP residual (`let deep_residual = test.take_from_sender<Coin<DEEP>>(); test.return_to_sender(deep_residual);`) and base residual confirm an object of the expected type exists at the sender, but assert NOTHING about its value. If a future refactor accidentally swapped the order of `transfer::public_transfer` calls (e.g., transferring `quote_out` twice and dropping `deep_residual`), the test framework's `take_from_sender<Coin<DEEP>>()` would abort because no `Coin<DEEP>` is at the sender \u2014 but this aborts with a test-framework error, not a clean assertion failure with a meaningful code. The test would fail noisily, but the diagnostic would be 'object not found' rather than 'wrapper failed to forward DEEP residual'. Lower-confidence because the test does ultimately catch the bug, just opaquely.",
+      "Verification that the T-003 drop documented in synthesis-notes and tests.json amendment is acceptable from an error-handling-lens standpoint. The dropped test would have pinned `min_out == realised_output` (the exact-equality boundary on the `>=` operator). Synthesis-notes correctly observes that this boundary is asymptotic between T-001 (succeeds for `value > min_out`) and T-002 (aborts for `value < min_out`); a `>` vs `>=` regression \u2014 the only realistic boundary bug \u2014 would surface in T-001 (if `>=` flipped to `>`, T-001 would still pass because realised value strictly exceeds min_out=0.5; the regression is silent there) or T-002 (would still abort because realised < 1e15; regression silent there too). Honest assessment: T-003's drop DOES leave a real `>=` vs `>` ambiguity uncovered. The friction note in raw-friction.log (line 29) accurately captures the test-scenario fixture limitation; the workaround would require restructuring the test to do exact-realised-output discovery off-chain (compute the expected output deterministically from float_scaling and pool parameters, then pin min_out to that value in a single test_scenario pair). Not blocking this iteration; flagging as a lingering boundary-coverage gap."
+    ],
+    "impacts": [
+      "Future refactor (e.g., someone removes the `min_quote_out = 0` permissive forward in favor of forwarding `min_out` directly to DeepBook) would change the abort code from EInsufficientOutput=0 to EMinimumQuantityOutNotMet=12 for slippage-floor breaches, silently breaking E-002's CLI assertion. T-002 would still pass because of the synthesized `coin::zero` quote being below `min_out` and the wrapper's own assert firing first \u2014 except with the refactor it WOULDN'T fire first, and T-002 would catch it. So T-002 actually does catch this regression. Less load-bearing than initially feared, but the lot-size case (R3-003) is genuinely uncovered.",
+      "Negligible. The assertion is a direct `>=` comparison with no arithmetic; any value above realisable suffices to cover today's behaviour. Calling out for completeness only.",
+      "Diagnostic clarity on regression, not pass/fail correctness. Marginal \u2014 the test does catch the bad refactor.",
+      "If a future maintainer changes `>=` to `>`, neither T-001 nor T-002 catches it. T-004 (min_out=0) requires `quote_out.value() >= 0` which is trivially true under both `>=` and `>` (assuming u64 semantics \u2014 `> 0` requires strict positivity, so a zero-output swap WOULD fail under `>` but pass under `>=`). T-004 partially covers the boundary if quote_out > 0 strictly; but the more direct exact-equality test is missing."
+    ],
+    "evidence": "// T-003 was DROPPED by orchestrator amendment: the original test required\n// two `begin`/`end` test_scenario pairs in a single #[test] function (one to\n// observe realised output, one to pin min_out to that exact value). Move's\n// test_scenario does not fully reset the shared-object store between\n// sequential begin/end pairs in one test, so the second `setup_everything`\n// hit `EFieldAlreadyExists` inside `deepbook::registry::test_registry` \u2014\n// the failure was entirely in fixture machinery, not in the wrapper code.",
+    "confidence_spread": [
+      "medium",
+      "high"
+    ],
+    "source_ids": [
+      "R3-006",
+      "R3-008",
+      "R3-009",
+      "R3-010"
+    ]
+  },
+  {
+    "cluster_id": "C009",
+    "title": "T-003 deletion is documented in 11 lines of inline comment that could be 2 lines plus a friction-log pointer",
+    "line_ranges": [
+      null
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      null
+    ],
+    "recommendations": [
+      ""
+    ],
+    "descriptions": [
+      ""
+    ],
+    "impacts": [
+      ""
+    ],
+    "evidence": "",
+    "confidence_spread": [
+      null
+    ],
+    "source_ids": [
+      "R4-001",
+      "R4-002",
+      "R4-003",
+      "R4-004",
+      "R4-005"
+    ]
+  },
+  {
+    "cluster_id": "C010",
+    "title": "T-003 drop leaves boundary `value == min_out` and `>` vs `>=` regression uncovered",
+    "line_ranges": [
+      null
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Strengthen by asserting an absolute lower bound that does not echo the wrapper's own check (e.g., `assert!(coin::value(&quote_out) > 0, 0)` and/or `assert!(coin::value(&quote_out) > min_out, 0)` to confirm a strict surplus). Optional, low priority \u2014 the take_from_sender already validates the transfer happened.",
+      "Either (a) accept the gap explicitly in the comment (current text overstates coverage), or (b) add a third success-path test where min_out is set to the exact value that DeepBook returned in a prior call. The original T-003 attempt failed only because of test_scenario fixture-reset friction; a single-tx variant that captures realised output via an event or via a two-call PTB-style sequence inside one `begin`/`end` could close the gap.",
+      "Add lightweight sanity bounds: `assert!(coin::value(&deep_residual) <= DEEP_IN, 6);` and `assert!(coin::value(&base_residual) < base_in_amount(), 7);` (the second only if the fixture guarantees a non-zero swap). Optional \u2014 the type-level disambiguation already prevents the most likely class of bug.",
+      "No change required. Note this design choice (bypass DeepBook's own check) in the module doc-comment if not already \u2014 the wrapper's own comment at lines 26-28 already does so. Good.",
+      "No change. Tests are aligned with the wrapper's contract surface.",
+      "No change.",
+      "No change required for this cycle. If a second test fixture covering a non-SUI base or non-USDC quote becomes available, consider mirroring T-001 against it."
+    ],
+    "descriptions": [
+      ""
+    ],
+    "impacts": [
+      ""
+    ],
+    "evidence": "Tests use min_out = constants::float_scaling()/2 (T-001) and 1_000_000_000_000_000 (T-002). Neither sits at `value == min_out`. The wrapper's gate is `>=`, contract requires `>=`, but no test would catch a flip to `>`.",
+    "confidence_spread": [
+      null
+    ],
+    "source_ids": [
+      "R5-001",
+      "R5-002",
+      "R5-003",
+      "R5-004",
+      "R5-005",
+      "R5-006",
+      "R5-007"
+    ]
+  },
+  {
+    "cluster_id": "C003",
+    "title": "Wrapper's assertion correctly enforces the slippage floor with `>=` and pins the documented error code",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_ranges": [
+      "43-47"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "No change required. Recording for audit trail."
+    ],
+    "descriptions": [
+      "Cross-checked the wrapper's call against the upstream DeepBook signature at /Users/alilloig/workspace/deepbook-sandbox/sandbox/.external-packages/deepbook/sources/pool.move:248-266. The signature is `swap_exact_base_for_quote<BaseAsset, QuoteAsset>(self: &mut Pool<BaseAsset, QuoteAsset>, base_in: Coin<BaseAsset>, deep_in: Coin<DEEP>, min_quote_out: u64, clock: &Clock, ctx: &mut TxContext) -> (Coin<BaseAsset>, Coin<QuoteAsset>, Coin<DEEP>)`. The wrapper passes argument types and order correctly, supplies `min_quote_out = 0` so DeepBook's internal min-out check never pre-empts the wrapper's gate (per T-002 design note in tests.json), destructures all three returned coins, applies `assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput)` using `>=` (not `>`) per AC2.3 verbatim, and transfers all three coins (base residual, quote output, DEEP residual) to `tx_context::sender(ctx)` with no coin dropped on the floor or wrapped into a residual object. T-005 in the test file confirms this end-to-end. No correctness defect found."
+    ],
+    "impacts": [
+      "None \u2014 observation only, recording that the correctness-critical wiring is right."
+    ],
+    "evidence": "let (base_residual, quote_out, deep_residual) =\n        pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx);\n\n    // Enforce the caller's slippage floor.\n    assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-002"
+    ]
+  }
+]

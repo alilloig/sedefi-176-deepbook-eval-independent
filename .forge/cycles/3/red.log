@@ -1,0 +1,473 @@
+INCLUDING DEPENDENCY MoveStdlib
+INCLUDING DEPENDENCY Sui
+INCLUDING DEPENDENCY deepbook
+INCLUDING DEPENDENCY pyth
+INCLUDING DEPENDENCY token
+INCLUDING DEPENDENCY usdc
+BUILDING tpsl_vault
+[0m[1m[38;5;11mwarning[W01004][0m[1m: invalid documentation comment[0m
+  [0m[34m┌─[0m /Users/alilloig/workspace/deepbook-sandbox/sandbox/packages/pyth/sources/price.move:4:5
+  [0m[34m│[0m  
+[0m[34m4[0m [0m[34m│[0m [0m[33m╭[0m     [0m[33m/// A price with a degree of uncertainty, represented as a price +- a confidence interval.[0m
+[0m[34m5[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    ///[0m
+[0m[34m6[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// The confidence interval roughly corresponds to the standard error of a normal distribution.[0m
+[0m[34m7[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// Both the price and confidence are stored in a fixed-point numeric representation,[0m
+[0m[34m8[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// `x * (10^expo)`, where `expo` is the exponent.[0m
+  [0m[34m│[0m [0m[33m╰[0m[0m[33m──────────────────────────────────────────────────────^ Documentation comment cannot be matched to a language item[0m
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:11:10
+   [0m[34m│[0m
+[0m[34m11[0m [0m[34m│[0m use std::[0m[33moption[0m;
+   [0m[34m│[0m          [0m[33m^^^^^^[0m [0m[33mUnnecessary alias 'option' for module 'std::option'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:15:10
+   [0m[34m│[0m
+[0m[34m15[0m [0m[34m│[0m use sui::[0m[33mobject[0m;
+   [0m[34m│[0m          [0m[33m^^^^^^[0m [0m[33mUnnecessary alias 'object' for module 'sui::object'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03002][0m[1m: unbound module[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:19:5
+   [0m[34m│[0m
+[0m[34m19[0m [0m[34m│[0m use [0m[31mtpsl_vault::tpsl_vault[0m::{Self, Vault, VaultCreated, TriggerFired};
+   [0m[34m│[0m     [0m[31m^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mInvalid 'use'. Unbound module: 'tpsl_vault::tpsl_vault'[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:58:13
+   [0m[34m│[0m
+[0m[34m58[0m [0m[34m│[0m         let [0m[33mcoin_in[0m = mint_for_testing<SUI>(base_in_amount(), test.ctx());
+   [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'coin_in'. Consider removing or prefixing with an underscore: '_coin_in'[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:59:9
+   [0m[34m│[0m
+[0m[34m59[0m [0m[34m│[0m         [0m[31mtpsl_vault::create_vault[0m<SUI>(
+   [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:72:38
+   [0m[34m│[0m
+[0m[34m 9[0m [0m[34m│[0m use deepbook::pool::Pool;
+   [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+   [0m[34m·[0m
+[0m[34m72[0m [0m[34m│[0m         let vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+   [0m[34m│[0m                                      [0m[31m^^^^^[0m
+   [0m[34m│[0m                                      [0m[31m│[0m
+   [0m[34m│[0m                                      [0m[31mCould not resolve the name 'Vault'[0m
+   [0m[34m│[0m                                      [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:77:17
+   [0m[34m│[0m
+[0m[34m77[0m [0m[34m│[0m         assert!([0m[31mtpsl_vault::balance_value[0m(&vault) == base_in_amount(), 100);
+   [0m[34m│[0m                 [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:78:18
+   [0m[34m│[0m
+[0m[34m78[0m [0m[34m│[0m         assert!(![0m[31mtpsl_vault::is_triggered[0m(&vault), 101);
+   [0m[34m│[0m                  [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03004][0m[1m: unbound type[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:82:52
+   [0m[34m│[0m
+[0m[34m82[0m [0m[34m│[0m         let created_events = event::events_by_type<[0m[31mVaultCreated[0m>();
+   [0m[34m│[0m                                                    [0m[31m^^^^^^^^^^^^[0m [0m[31mUnbound type 'VaultCreated' in current scope[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:84:13
+   [0m[34m│[0m
+[0m[34m84[0m [0m[34m│[0m         let [0m[33mevt[0m = &created_events[0];
+   [0m[34m│[0m             [0m[33m^^^[0m [0m[33mUnused local variable 'evt'. Consider removing or prefixing with an underscore: '_evt'[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:85:17
+   [0m[34m│[0m
+[0m[34m85[0m [0m[34m│[0m         assert!([0m[31mtpsl_vault::vault_created_vault_id[0m(evt) == vault_id, 103);
+   [0m[34m│[0m                 [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:86:17
+   [0m[34m│[0m
+[0m[34m86[0m [0m[34m│[0m         assert!([0m[31mtpsl_vault::vault_created_owner[0m(evt) == OWNER, 104);
+   [0m[34m│[0m                 [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:87:17
+   [0m[34m│[0m
+[0m[34m87[0m [0m[34m│[0m         assert!([0m[31mtpsl_vault::vault_created_pool_id[0m(evt) == pool_id, 105);
+   [0m[34m│[0m                 [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:88:17
+   [0m[34m│[0m
+[0m[34m88[0m [0m[34m│[0m         assert!([0m[31mtpsl_vault::vault_created_side[0m(evt) == SIDE_LONG, 106);
+   [0m[34m│[0m                 [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:90:13
+   [0m[34m│[0m
+[0m[34m90[0m [0m[34m│[0m             [0m[31mtpsl_vault::vault_created_tp_price[0m(evt)
+   [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:95:13
+   [0m[34m│[0m
+[0m[34m95[0m [0m[34m│[0m             [0m[31mtpsl_vault::vault_created_sl_price[0m(evt) == option::none<u64>(),
+   [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:99:13
+   [0m[34m│[0m
+[0m[34m99[0m [0m[34m│[0m             [0m[31mtpsl_vault::vault_created_deposit_amount[0m(evt) == base_in_amount(),
+   [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:116:9
+    [0m[34m│[0m
+[0m[34m116[0m [0m[34m│[0m     let [0m[33mpool_id[0m = setup_everything<SUI, USDC, SUI, DEEP>(&mut test);
+    [0m[34m│[0m         [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'pool_id'. Consider removing or prefixing with an underscore: '_pool_id'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:120:13
+    [0m[34m│[0m
+[0m[34m120[0m [0m[34m│[0m         let [0m[33mcoin_in[0m = mint_for_testing<SUI>(base_in_amount(), test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'coin_in'. Consider removing or prefixing with an underscore: '_coin_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:121:9
+    [0m[34m│[0m
+[0m[34m121[0m [0m[34m│[0m         [0m[31mtpsl_vault::create_vault[0m<SUI>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:133:42
+    [0m[34m│[0m
+[0m[34m  9[0m [0m[34m│[0m use deepbook::pool::Pool;
+    [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+    [0m[34m·[0m
+[0m[34m133[0m [0m[34m│[0m         let mut vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+    [0m[34m│[0m                                          [0m[31m^^^^^[0m
+    [0m[34m│[0m                                          [0m[31m│[0m
+    [0m[34m│[0m                                          [0m[31mCould not resolve the name 'Vault'[0m
+    [0m[34m│[0m                                          [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:134:9
+    [0m[34m│[0m
+[0m[34m134[0m [0m[34m│[0m         [0m[31mtpsl_vault::withdraw[0m<SUI>(&mut vault, test.ctx());
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:160:9
+    [0m[34m│[0m
+[0m[34m160[0m [0m[34m│[0m     let [0m[33mpool_id[0m = setup_everything<SUI, USDC, SUI, DEEP>(&mut test);
+    [0m[34m│[0m         [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'pool_id'. Consider removing or prefixing with an underscore: '_pool_id'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:164:13
+    [0m[34m│[0m
+[0m[34m164[0m [0m[34m│[0m         let [0m[33mcoin_in[0m = mint_for_testing<SUI>(base_in_amount(), test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'coin_in'. Consider removing or prefixing with an underscore: '_coin_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:165:9
+    [0m[34m│[0m
+[0m[34m165[0m [0m[34m│[0m         [0m[31mtpsl_vault::create_vault[0m<SUI>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:177:42
+    [0m[34m│[0m
+[0m[34m  9[0m [0m[34m│[0m use deepbook::pool::Pool;
+    [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+    [0m[34m·[0m
+[0m[34m177[0m [0m[34m│[0m         let mut vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+    [0m[34m│[0m                                          [0m[31m^^^^^[0m
+    [0m[34m│[0m                                          [0m[31m│[0m
+    [0m[34m│[0m                                          [0m[31mCould not resolve the name 'Vault'[0m
+    [0m[34m│[0m                                          [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:178:9
+    [0m[34m│[0m
+[0m[34m178[0m [0m[34m│[0m         [0m[31mtpsl_vault::withdraw[0m<SUI>(&mut vault, test.ctx());
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:196:13
+    [0m[34m│[0m
+[0m[34m196[0m [0m[34m│[0m         let [0m[33mcoin_in[0m = mint_for_testing<SUI>(base_in_amount(), test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'coin_in'. Consider removing or prefixing with an underscore: '_coin_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:197:9
+    [0m[34m│[0m
+[0m[34m197[0m [0m[34m│[0m         [0m[31mtpsl_vault::create_vault[0m<SUI>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:212:42
+    [0m[34m│[0m
+[0m[34m  9[0m [0m[34m│[0m use deepbook::pool::Pool;
+    [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+    [0m[34m·[0m
+[0m[34m212[0m [0m[34m│[0m         let mut vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+    [0m[34m│[0m                                          [0m[31m^^^^^[0m
+    [0m[34m│[0m                                          [0m[31m│[0m
+    [0m[34m│[0m                                          [0m[31mCould not resolve the name 'Vault'[0m
+    [0m[34m│[0m                                          [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:216:13
+    [0m[34m│[0m
+[0m[34m216[0m [0m[34m│[0m         let [0m[33mdeep_in[0m = mint_for_testing<DEEP>(DEEP_IN, test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'deep_in'. Consider removing or prefixing with an underscore: '_deep_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:218:9
+    [0m[34m│[0m
+[0m[34m218[0m [0m[34m│[0m         [0m[31mtpsl_vault::execute_trigger[0m<SUI, USDC>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:228:17
+    [0m[34m│[0m
+[0m[34m228[0m [0m[34m│[0m         assert!([0m[31mtpsl_vault::is_triggered[0m(&vault), 400);
+    [0m[34m│[0m                 [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03004][0m[1m: unbound type[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:267:46
+    [0m[34m│[0m
+[0m[34m267[0m [0m[34m│[0m     let fired_events = event::events_by_type<[0m[31mTriggerFired[0m>();
+    [0m[34m│[0m                                              [0m[31m^^^^^^^^^^^^[0m [0m[31mUnbound type 'TriggerFired' in current scope[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:269:9
+    [0m[34m│[0m
+[0m[34m269[0m [0m[34m│[0m     let [0m[33mevt[0m = &fired_events[0];
+    [0m[34m│[0m         [0m[33m^^^[0m [0m[33mUnused local variable 'evt'. Consider removing or prefixing with an underscore: '_evt'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:270:13
+    [0m[34m│[0m
+[0m[34m270[0m [0m[34m│[0m     assert!([0m[31mtpsl_vault::trigger_fired_vault_id[0m(evt) == vault_id, 405);
+    [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:271:13
+    [0m[34m│[0m
+[0m[34m271[0m [0m[34m│[0m     assert!([0m[31mtpsl_vault::trigger_fired_owner[0m(evt) == OWNER, 406);
+    [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:273:9
+    [0m[34m│[0m
+[0m[34m273[0m [0m[34m│[0m         [0m[31mtpsl_vault::trigger_fired_current_price[0m(evt)
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:277:13
+    [0m[34m│[0m
+[0m[34m277[0m [0m[34m│[0m     assert!([0m[31mtpsl_vault::trigger_fired_quote_out_amount[0m(evt) > 0, 408);
+    [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:293:13
+    [0m[34m│[0m
+[0m[34m293[0m [0m[34m│[0m         let [0m[33mcoin_in[0m = mint_for_testing<SUI>(base_in_amount(), test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'coin_in'. Consider removing or prefixing with an underscore: '_coin_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:294:9
+    [0m[34m│[0m
+[0m[34m294[0m [0m[34m│[0m         [0m[31mtpsl_vault::create_vault[0m<SUI>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:308:42
+    [0m[34m│[0m
+[0m[34m  9[0m [0m[34m│[0m use deepbook::pool::Pool;
+    [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+    [0m[34m·[0m
+[0m[34m308[0m [0m[34m│[0m         let mut vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+    [0m[34m│[0m                                          [0m[31m^^^^^[0m
+    [0m[34m│[0m                                          [0m[31m│[0m
+    [0m[34m│[0m                                          [0m[31mCould not resolve the name 'Vault'[0m
+    [0m[34m│[0m                                          [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:312:13
+    [0m[34m│[0m
+[0m[34m312[0m [0m[34m│[0m         let [0m[33mdeep_in[0m = mint_for_testing<DEEP>(DEEP_IN, test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'deep_in'. Consider removing or prefixing with an underscore: '_deep_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:315:9
+    [0m[34m│[0m
+[0m[34m315[0m [0m[34m│[0m         [0m[31mtpsl_vault::execute_trigger[0m<SUI, USDC>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:324:17
+    [0m[34m│[0m
+[0m[34m324[0m [0m[34m│[0m         assert!([0m[31mtpsl_vault::is_triggered[0m(&vault), 500);
+    [0m[34m│[0m                 [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03004][0m[1m: unbound type[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:344:46
+    [0m[34m│[0m
+[0m[34m344[0m [0m[34m│[0m     let fired_events = event::events_by_type<[0m[31mTriggerFired[0m>();
+    [0m[34m│[0m                                              [0m[31m^^^^^^^^^^^^[0m [0m[31mUnbound type 'TriggerFired' in current scope[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:346:9
+    [0m[34m│[0m
+[0m[34m346[0m [0m[34m│[0m     let [0m[33mevt[0m = &fired_events[0];
+    [0m[34m│[0m         [0m[33m^^^[0m [0m[33mUnused local variable 'evt'. Consider removing or prefixing with an underscore: '_evt'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:347:13
+    [0m[34m│[0m
+[0m[34m347[0m [0m[34m│[0m     assert!([0m[31mtpsl_vault::trigger_fired_vault_id[0m(evt) == vault_id, 503);
+    [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:348:13
+    [0m[34m│[0m
+[0m[34m348[0m [0m[34m│[0m     assert!([0m[31mtpsl_vault::trigger_fired_owner[0m(evt) == OWNER, 504);
+    [0m[34m│[0m             [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:350:9
+    [0m[34m│[0m
+[0m[34m350[0m [0m[34m│[0m         [0m[31mtpsl_vault::trigger_fired_current_price[0m(evt)
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:374:13
+    [0m[34m│[0m
+[0m[34m374[0m [0m[34m│[0m         let [0m[33mcoin_in[0m = mint_for_testing<SUI>(base_in_amount(), test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'coin_in'. Consider removing or prefixing with an underscore: '_coin_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:377:9
+    [0m[34m│[0m
+[0m[34m377[0m [0m[34m│[0m         [0m[31mtpsl_vault::create_vault[0m<SUI>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:389:42
+    [0m[34m│[0m
+[0m[34m  9[0m [0m[34m│[0m use deepbook::pool::Pool;
+    [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+    [0m[34m·[0m
+[0m[34m389[0m [0m[34m│[0m         let mut vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+    [0m[34m│[0m                                          [0m[31m^^^^^[0m
+    [0m[34m│[0m                                          [0m[31m│[0m
+    [0m[34m│[0m                                          [0m[31mCould not resolve the name 'Vault'[0m
+    [0m[34m│[0m                                          [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:392:13
+    [0m[34m│[0m
+[0m[34m392[0m [0m[34m│[0m         let [0m[33mdeep_in[0m = mint_for_testing<DEEP>(DEEP_IN, test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'deep_in'. Consider removing or prefixing with an underscore: '_deep_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:394:9
+    [0m[34m│[0m
+[0m[34m394[0m [0m[34m│[0m         [0m[31mtpsl_vault::execute_trigger[0m<SUI, USDC>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:426:13
+    [0m[34m│[0m
+[0m[34m426[0m [0m[34m│[0m         let [0m[33mcoin_in[0m = mint_for_testing<SUI>(base_in_amount(), test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'coin_in'. Consider removing or prefixing with an underscore: '_coin_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:427:9
+    [0m[34m│[0m
+[0m[34m427[0m [0m[34m│[0m         [0m[31mtpsl_vault::create_vault[0m<SUI>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:440:42
+    [0m[34m│[0m
+[0m[34m  9[0m [0m[34m│[0m use deepbook::pool::Pool;
+    [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+    [0m[34m·[0m
+[0m[34m440[0m [0m[34m│[0m         let mut vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+    [0m[34m│[0m                                          [0m[31m^^^^^[0m
+    [0m[34m│[0m                                          [0m[31m│[0m
+    [0m[34m│[0m                                          [0m[31mCould not resolve the name 'Vault'[0m
+    [0m[34m│[0m                                          [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;11mwarning[W09002][0m[1m: unused variable[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:443:13
+    [0m[34m│[0m
+[0m[34m443[0m [0m[34m│[0m         let [0m[33mdeep_in[0m = mint_for_testing<DEEP>(DEEP_IN, test.ctx());
+    [0m[34m│[0m             [0m[33m^^^^^^^[0m [0m[33mUnused local variable 'deep_in'. Consider removing or prefixing with an underscore: '_deep_in'[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_variable)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:445:9
+    [0m[34m│[0m
+[0m[34m445[0m [0m[34m│[0m         [0m[31mtpsl_vault::execute_trigger[0m<SUI, USDC>(
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:462:42
+    [0m[34m│[0m
+[0m[34m  9[0m [0m[34m│[0m use deepbook::pool::Pool;
+    [0m[34m│[0m                     [0m[34m----[0m [0m[34mSimilarly named defintion found here[0m
+    [0m[34m·[0m
+[0m[34m462[0m [0m[34m│[0m         let mut vault = test.take_shared<[0m[31mVault[0m<SUI>>();
+    [0m[34m│[0m                                          [0m[31m^^^^^[0m
+    [0m[34m│[0m                                          [0m[31m│[0m
+    [0m[34m│[0m                                          [0m[31mCould not resolve the name 'Vault'[0m
+    [0m[34m│[0m                                          [0m[34mDid you mean: 'Pool'[0m
+
+[0m[1m[38;5;9merror[E03006][0m[1m: unexpected name in this position[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:463:9
+    [0m[34m│[0m
+[0m[34m463[0m [0m[34m│[0m         [0m[31mtpsl_vault::withdraw[0m<SUI>(&mut vault, test.ctx());
+    [0m[34m│[0m         [0m[31m^^^^^^^^^^^^^^^^^^^^[0m [0m[31mUnexpected module identifier. A module identifier is not a valid expression[0m
+

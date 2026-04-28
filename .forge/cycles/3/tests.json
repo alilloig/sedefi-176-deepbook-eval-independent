@@ -1,0 +1,65 @@
+[
+  {
+    "id": "T-001",
+    "name": "create_vault constructs a shared vault with the deposited balance and emits VaultCreated",
+    "behavior": "given a freshly minted Coin<SUI> of 1 base unit (1 * float_scaling()), an arbitrary pool_id (e.g., the id returned by deepbook::pool_tests::setup_everything<SUI, USDC, SUI, DEEP>), side = 0, tp_price = some(2 * float_scaling()), sl_price = none, calling tpsl_vault::create_vault<SUI> succeeds; after test_scenario.next_tx the package emits exactly one VaultCreated event whose vault_id matches the freshly-shared Vault<SUI> object id (asserted via test_scenario::take_shared<Vault<SUI>> + object::id), owner equals the create_vault sender, pool_id matches the supplied pool_id, side == 0, tp_price == some(2*float_scaling()), sl_price == none, and deposit_amount == 1 * float_scaling(); the shared Vault<SUI>'s balance value equals 1 * float_scaling() and triggered == false. Verifies AC3.1 (struct shape + key fields) and AC3.2 (entry function + sharing + event emission with correct field shape).",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "test_file": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move",
+    "covers_contract_requirement": "AC3.1, AC3.2"
+  },
+  {
+    "id": "T-002",
+    "name": "withdraw before fire returns full deposited balance to owner",
+    "behavior": "given a vault freshly created by OWNER via tpsl_vault::create_vault<SUI> with a 1 * float_scaling() base deposit and triggered == false, calling tpsl_vault::withdraw<SUI> from the same OWNER address succeeds; the contract MAY return Coin<SUI> directly or transfer it to the sender. The test handles the transfer-to-sender variant (AC3.3 names both as valid): after test_scenario.next_tx, OWNER owns a Coin<SUI> via test_scenario::take_from_sender<Coin<SUI>> whose value equals the originally deposited amount (1 * float_scaling()) — no fee, no slippage, since withdraw is a balance drain not a swap. Verifies AC3.3 (withdraw success path on untriggered vault).",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "test_file": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move",
+    "covers_contract_requirement": "AC3.3"
+  },
+  {
+    "id": "T-003",
+    "name": "withdraw by non-owner aborts with ENotOwner",
+    "behavior": "given a vault created by OWNER on an untriggered (triggered == false) state, a non-owner address (e.g., @0xCAFE) calling tpsl_vault::withdraw<SUI> aborts with the named error constant tpsl_vault::ENotOwner. Annotated #[test, expected_failure(abort_code = ::tpsl_vault::tpsl_vault::ENotOwner)]; a successful run produces the expected abort. This pins the recommended bonus assertion from contract.md (lifts E-007's non-owner Move-side check into the in-cycle suite) and verifies AC3.3's owner-only assertion is sourced from the named constant rather than an anonymous abort.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "test_file": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move",
+    "covers_contract_requirement": "AC3.3"
+  },
+  {
+    "id": "T-004",
+    "name": "execute_trigger fires when current_price reaches take-profit threshold and routes proceeds to owner",
+    "behavior": "given the deepbook test pool fixture (setup_everything<SUI, USDC, SUI, DEEP>; bid at 1.0, ask at 2.0, 1000 base units of liquidity per side), a vault created by OWNER with 1 * float_scaling() base deposit, tp_price = some(1 * float_scaling()), sl_price = none, side = 0, and the pool_id from setup_everything; an arbitrary KEEPER (not OWNER) calls tpsl_vault::execute_trigger<SUI, USDC>(vault, &mut pool, current_price = 1 * float_scaling(), deep_in (a freshly minted Coin<DEEP> of generous size, e.g., 1000 * 1e9), &clock, ctx). The call succeeds because tp_price.is_some() && current_price >= tp_price. After test_scenario.next_tx as OWNER: OWNER owns a Coin<USDC> (the swap output) via take_from_sender with strictly positive value; OWNER also owns a Coin<SUI> base residual and a Coin<DEEP> residual (per Contract decisions #3, all three returned coins route to vault.owner not to the trigger caller). The shared Vault<SUI>'s triggered flag flips to true. After test_scenario.next_tx as KEEPER: KEEPER does NOT own a Coin<USDC> nor a Coin<DEEP> from the swap (asserted via !test_scenario::has_most_recent_for_address<Coin<USDC>>(KEEPER)); this pins the no-side-channel routing decision. A TriggerFired event is emitted (one event total over the trigger transaction; verified via test_scenario events query) carrying the vault_id (matching object::id(&vault)), owner (== OWNER), current_price (== 1 * float_scaling()), and quote_out_amount > 0. Verifies AC3.4 success path (TP fires) and AC3.5 'TP fires' required test.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "test_file": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move",
+    "covers_contract_requirement": "AC3.4, AC3.5"
+  },
+  {
+    "id": "T-005",
+    "name": "execute_trigger fires when current_price falls to stop-loss threshold and routes proceeds to owner",
+    "behavior": "given the deepbook test pool fixture (setup_everything<SUI, USDC, SUI, DEEP>) and a vault created by OWNER with 1 * float_scaling() base deposit, tp_price = none, sl_price = some(2 * float_scaling()), side = 0; KEEPER calls tpsl_vault::execute_trigger<SUI, USDC>(vault, &mut pool, current_price = 1 * float_scaling(), deep_in, &clock, ctx). The call succeeds because sl_price.is_some() && current_price <= sl_price (1 <= 2). Same post-conditions as T-004: OWNER receives Coin<USDC> with positive value, Coin<SUI> base residual, and Coin<DEEP> residual; vault.triggered == true; one TriggerFired event emitted with current_price == 1 * float_scaling() and owner == OWNER. Verifies AC3.4 (SL branch of trigger condition) and AC3.5 'SL fires' required test.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "test_file": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move",
+    "covers_contract_requirement": "AC3.4, AC3.5"
+  },
+  {
+    "id": "T-006",
+    "name": "execute_trigger aborts with ETriggerConditionNotMet when neither TP nor SL is satisfied",
+    "behavior": "given the deepbook test pool fixture (setup_everything<SUI, USDC, SUI, DEEP>) and a vault created by OWNER with tp_price = some(10 * float_scaling()) (unreachable upward) and sl_price = some(0) (unreachable downward), KEEPER calls tpsl_vault::execute_trigger<SUI, USDC>(vault, &mut pool, current_price = 1 * float_scaling(), deep_in, &clock, ctx). The call aborts with the named constant tpsl_vault::ETriggerConditionNotMet because current_price (1) < tp_price (10) AND current_price (1) > sl_price (0). Annotated #[test, expected_failure(abort_code = ::tpsl_vault::tpsl_vault::ETriggerConditionNotMet)] so a successful run produces the expected abort. Pins that the abort comes from the named module-level constant (not an anonymous code, not a deepbook-internal code). Verifies AC3.4 condition-gate abort path and AC3.5 'neither fires (abort)' required test.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "test_file": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move",
+    "covers_contract_requirement": "AC3.4, AC3.5"
+  },
+  {
+    "id": "T-007",
+    "name": "withdraw after a successful trigger aborts with EVaultTriggered",
+    "behavior": "given the deepbook test pool fixture (setup_everything<SUI, USDC, SUI, DEEP>) and a vault created by OWNER with tp_price = some(1 * float_scaling()), sl_price = none, then fired by KEEPER calling tpsl_vault::execute_trigger<SUI, USDC>(vault, &mut pool, current_price = 1 * float_scaling(), deep_in, &clock, ctx) which succeeds and sets vault.triggered = true; OWNER then calls tpsl_vault::withdraw<SUI> on the same shared vault. The call aborts with the named constant tpsl_vault::EVaultTriggered. Annotated #[test, expected_failure(abort_code = ::tpsl_vault::tpsl_vault::EVaultTriggered)] so a successful run produces the expected abort. Both phases (trigger then withdraw) live in a SINGLE test_scenario lifetime per Cycle 2 lessons (no double begin/end pairs). Verifies AC3.3 (withdraw refuses on triggered vaults) AND AC3.5 'withdraw after fire (abort)' required test in one assertion.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "test_file": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move",
+    "covers_contract_requirement": "AC3.3, AC3.5"
+  }
+]

@@ -1,0 +1,93 @@
+[
+  {
+    "id": "R2-001",
+    "title": "W99010 lint `unnecessary 'entry' on a 'public' function` is contract-driven, not a design defect — accept and document the override",
+    "severity": "low",
+    "category": "design",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_range": "33-33",
+    "description": "The Move 2024 lint W99010 fires on `public entry fun swap_exact_base_for_quote` because `public` already permits PTB invocation, making the `entry` keyword redundant. The Move Book's code-quality checklist explicitly codifies this as a style rule: '### No `public entry`, Only `public` or `entry`'. However, the cycle contract is unambiguous: AC2.2 states 'exactly one `public entry fun` in the module's source file', and the contract behaviour section (`## Goal`) repeats 'a single public entry function'. The implementation honours the contract verbatim. The green synthesis notes already flag this as 'quality nit, can fix in iter-2 or accept'. From a design standpoint this is a contract-vs-style conflict, not an implementation bug — the contract author chose the redundant modifier combination, likely to communicate caller-intent ('this is the on-chain CLI entrypoint'). Recommend either (a) suppress the lint at module scope with `#[allow(lint(public_entry))]` plus a doc comment citing AC2.2, or (b) raise the contract conflict to the orchestrator so AC2.2 can be relaxed to `public fun` for a future cycle. Do not silently strip `entry` — that would violate AC2.2 verification ('exactly one `public entry fun`').",
+    "impact": "Persistent build-time warning noise on every `sui move build`. Future maintainers reading the source without the contract handy will assume the lint reflects sloppy code rather than a deliberate spec compliance choice. Iter-2 quality passes will keep flagging it.",
+    "recommendation": "Add `#[allow(lint(public_entry))]` immediately above the `public entry fun` declaration, with a one-line comment: `// AC2.2 mandates `public entry`; suppress W99010 for spec-compliance.` This documents intent in-tree and silences the warning. Alternatively, escalate to orchestrator to amend AC2.2.",
+    "evidence": "warning[Lint W99010]: unnecessary `entry` on a `public` function\n   ┌─ ./sources/slippage_swap.move:33:8\n   │\n33 │ public entry fun swap_exact_base_for_quote<BaseAsset, QuoteAsset>(\n   │        ^^^^^ `entry` on `public` is meaningless. In conjunction with `public`, `entry` adds no additional permissions or restrictions.",
+    "confidence": "high"
+  },
+  {
+    "id": "R2-002",
+    "title": "Move.toml deviates from `example_contract` template by dropping `deepbook_margin` — deviation is justified but breaks AC2.1 strict mirror",
+    "severity": "medium",
+    "category": "design",
+    "file": "independent/02-slippage-swap/Move.toml",
+    "line_range": "5-16",
+    "description": "AC2.1 demands the dependency block be 'structurally identical to the sandbox's `example_contract` template (same external packages, same edition)' and explicitly enumerates the five-package list `token, deepbook, deepbook_margin, pyth, usdc`. The implementation declares only four (`token, deepbook, pyth, usdc`) and replaces `deepbook_margin` with a comment block explaining the bundled `deepbook_margin/tests/helper/test_helpers.move` references a missing `pyth::price_info::new_price_info_object_for_test` symbol, which surfaces as a compile-time `unbound module member` error (confirmed in `red.log` lines 9-13 and lines 171-176). The deviation is real — no workaround exists short of patching the bundled `deepbook_margin` package, which is forbidden by `## Out of scope` ('any mutation of files under `~/workspace/deepbook-sandbox/sandbox/`'). The green synthesis notes call this out as deviation #1. From the design lens, the comment block in `Move.toml` is well-written and self-documenting (lines 9-12 explain the why), but AC2.1's verification check ('lists the same five external packages in the same order') will fail mechanically. This is a contract-vs-reality conflict that needs an orchestrator amendment, not a silent workaround.",
+    "impact": "AC2.1 will not pass a literal verification: only four of the five required packages are declared. A mechanical AC checker (regex over `Move.toml` for the package names) would flag this as a contract violation. Reviewers downstream may assume the omission is an oversight.",
+    "recommendation": "Two parallel actions: (1) escalate the deviation to the orchestrator and request AC2.1 be amended to permit dropping `deepbook_margin` until the bundled package's test helper is fixed upstream, citing the friction-log entry. (2) Reinforce the in-file rationale by referencing the friction-log line and amendment number directly in the comment, e.g. `# deepbook_margin excluded per orchestrator amendment N (see independent/raw-friction.log [deepbook] entry YYYY-MM-DD): the bundled deepbook_margin/tests/helper/test_helpers.move references pyth::price_info::new_price_info_object_for_test which doesn't exist in the bundled pyth package.`",
+    "evidence": "# deepbook_margin excluded: its bundled test sources reference\n# pyth::price_info::new_price_info_object_for_test which does not exist in\n# the bundled pyth package, causing a build-time unbound-member error.\n# The slippage_swap wrapper does not use deepbook_margin at all.",
+    "confidence": "high"
+  },
+  {
+    "id": "R2-003",
+    "title": "Source uses `pool::swap_exact_base_for_quote(pool, ...)` qualified-call form rather than idiomatic Move 2024 dot-method-call `pool.swap_exact_base_for_quote(...)`",
+    "severity": "low",
+    "category": "design",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_range": "9-44",
+    "description": "Line 9 imports `use deepbook::pool::{Self, Pool};` so the source can write `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` on line 44. DeepBook's `swap_exact_base_for_quote` (deepbook/sources/pool.move:248-255) takes `self: &mut Pool<BaseAsset, QuoteAsset>` as its first parameter, which means it is callable via Move 2024 method-call dot syntax: `pool.swap_exact_base_for_quote(base_in, deep_in, 0, clock, ctx)`. Switching to dot-syntax would (a) drop the `Self` member from the `pool::` import (`use deepbook::pool::Pool;`), reducing import surface, (b) read more naturally as 'pool does X' rather than 'invoke pool::X on pool', (c) match the canonical Move 2024 idiom encouraged in the Move Book's `book/move-basics/struct-methods.md` and the doc-first agent's 'Upgrade Outdated Code' rule ('Old function-style calls → dot-method-call'). The same applies to line 47's `coin::value(&quote_out)` — dot-syntax form `quote_out.value()` is preferred and would let the `Self` member also be dropped from `use sui::coin::{Self, Coin};` → `use sui::coin::Coin;`. The DeepBook upstream code itself uses dot-syntax (`self.swap_exact_quantity(...)` on pool.move:258).",
+    "impact": "Style drift from Move 2024 idioms; carries forward two unnecessary `Self` imports; future reviewers running `move-code-quality` against this code will likely flag the function-style calls. Not a correctness issue.",
+    "recommendation": "Refactor: change line 9 to `use deepbook::pool::Pool;`, change line 11 to `use sui::coin::Coin;`, change line 44 to `let (base_residual, quote_out, deep_residual) = pool.swap_exact_base_for_quote(base_in, deep_in, 0, clock, ctx);`, and change line 47 to `assert!(quote_out.value() >= min_out, EInsufficientOutput);`. Re-run `sui move test -e localnet` to confirm no regression.",
+    "evidence": "use deepbook::pool::{Self, Pool};\nuse sui::clock::Clock;\nuse sui::coin::{Self, Coin};\n...\n    let (base_residual, quote_out, deep_residual) =\n        pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx);\n\n    // Enforce the caller's slippage floor.\n    assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput);",
+    "confidence": "high"
+  },
+  {
+    "id": "R2-004",
+    "title": "Module structure, public surface, error placement, and section headers all match Sui Move 2024 conventions — no design defects in scope",
+    "severity": "info",
+    "category": "design",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_range": "1-54",
+    "description": "Positive findings, captured for completeness so the design ledger is symmetric: (1) Module declared with the Move 2024 single-block syntax `module slippage_swap::slippage_swap;` (line 7) — no legacy `module x::y { ... }` block. (2) Public surface contains exactly one symbol — `swap_exact_base_for_quote` — and zero accidentally-public helpers; the contract's 'no other public function' constraint (AC2.2: 'exactly one `public entry fun`') is satisfied byte-for-byte. (3) Error constant `EInsufficientOutput` is declared at module scope (line 18), prefixed `E`, typed `u64`, value `0`, with a doc-comment documenting it as the slippage-floor abort code per AC2.3's 'documented named error code' requirement. (4) Section headers `// === Errors ===` (line 14) and `// === Public entry ===` (line 20) match the Sui convention used in the sui-framework. (5) Imports are minimal — only the four packages actually used (`deepbook::pool`, `sui::clock`, `sui::coin`, `token::deep`); no kitchen-sink (e.g. no unused `transfer`, `tx_context`, `option` imports) — note `transfer` is implicitly available (sui-framework alias) and `ctx.sender()` uses dot-syntax on TxContext. (6) Function signature parameter ordering matches the Move Book's 'Objects Go First (Except for Clock)' guidance from `code-quality-checklist.md`: pool object → input coins → scalar → clock → ctx. (7) Doc-comment density (lines 22-32) exceeds the surrounding DeepBook code's density and clearly enumerates the four-step algorithm.",
+    "impact": "None — these are confirmations that the code adheres to Move 2024 design conventions. Recording for ledger symmetry; an empty-positives ledger would imply only negatives were considered.",
+    "recommendation": "No action required. Maintain these patterns when expanding the module.",
+    "evidence": "module slippage_swap::slippage_swap;\n\nuse deepbook::pool::{Self, Pool};\nuse sui::clock::Clock;\nuse sui::coin::{Self, Coin};\nuse token::deep::DEEP;\n\n// === Errors ===\n\n/// Abort code raised when the realised quote output is below the caller's\n/// min_out floor (slippage-floor abort code).\nconst EInsufficientOutput: u64 = 0;\n\n// === Public entry ===",
+    "confidence": "high"
+  },
+  {
+    "id": "R2-005",
+    "title": "Test module imports `coin::{Self, mint_for_testing}` and `test_scenario::{Self, ...}` but uses `Self` qualifier only once each — could tighten to dot-syntax",
+    "severity": "low",
+    "category": "design",
+    "file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "line_range": "14-17",
+    "description": "Line 14 imports `use sui::coin::{Self, Coin, mint_for_testing};` — the `Self` member is used only via `coin::value(&quote_out)` (lines 70, 153, 192), all of which can be expressed via dot-syntax `quote_out.value()`. Line 16 imports `use sui::test_scenario::{Self, begin, end, return_shared};` — the `Self` member is used only once, in `test_scenario::has_most_recent_for_sender<BalanceManager>(&test)` on line 207. That call has no `self`-style first param so dot-syntax does not apply, but the existing form is acceptable. Net: dropping `Self` from the `coin::` import (line 14 → `use sui::coin::{Coin, mint_for_testing};`) and migrating the three `coin::value(...)` call-sites to `<coin>.value()` would remove an unused-import-style alias and align tests with the Move 2024 idiom. The `test_scenario::Self` import should be retained because of line 207.",
+    "impact": "Minor. Tests pass, no functional issue. The `Self` alias for `coin::` adds no value once the three callsites are migrated to dot-syntax. Consistency with the corresponding source-file refactor (R2-003) means this is best done in the same pass.",
+    "recommendation": "Change line 14 to `use sui::coin::{Coin, mint_for_testing};`, then change lines 70, 153, 192 from `coin::value(&quote_out)` (or `coin::value(&base_residual)` etc.) to `quote_out.value()` style. Leave the `test_scenario::Self` import as-is.",
+    "evidence": "use sui::coin::{Self, Coin, mint_for_testing};\nuse sui::sui::SUI;\nuse sui::test_scenario::{Self, begin, end, return_shared};\n...\n        assert!(coin::value(&quote_out) >= min_out, 0);",
+    "confidence": "high"
+  },
+  {
+    "id": "R2-006",
+    "title": "Test module pulls `BalanceManager` and `USDC` from `deepbook::balance_manager*` rather than declaring its own type witnesses — design choice is correct",
+    "severity": "info",
+    "category": "design",
+    "file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "line_range": "7-11",
+    "description": "Confirmation note: the test module imports `deepbook::balance_manager::BalanceManager` (line 7), `deepbook::balance_manager_tests::USDC` (line 8), `deepbook::constants` (line 9), `deepbook::pool::Pool` (line 10), and `deepbook::pool_tests::setup_everything` (line 11). Reusing the bundled DeepBook test fixtures (`setup_everything`, `BalanceManager`, the `USDC` test-only witness type, `constants::float_scaling`) is the correct design — it avoids reproducing 1000+ lines of orderbook setup and keeps the test surface aligned with the canonical DeepBook test patterns. The alternative (define a local USDC witness, hand-build a Pool, mint orders) would produce far less faithful coverage and would diverge from the pattern E-002 / E-005 are expected to assert against. Importing `BalanceManager` solely for the negative assertion `!has_most_recent_for_sender<BalanceManager>` (line 207) is the cheapest way to pin AC2.3's 'no balance manager constructed' invariant.",
+    "impact": "None — confirms a deliberate, correct design choice.",
+    "recommendation": "No action.",
+    "evidence": "use deepbook::balance_manager::BalanceManager;\nuse deepbook::balance_manager_tests::USDC;\nuse deepbook::constants;\nuse deepbook::pool::Pool;\nuse deepbook::pool_tests::setup_everything;",
+    "confidence": "high"
+  },
+  {
+    "id": "R2-007",
+    "title": "Single-module package layout (no `lib.move` indirection, no helper modules) is correctly minimal for the Slot 2 wrapper",
+    "severity": "info",
+    "category": "design",
+    "file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "line_range": "1-54",
+    "description": "Confirmation note: the package contains exactly one source module (`sources/slippage_swap.move`) and one test module (`tests/slippage_swap_tests.move`). For a 50-line wrapper around a single DeepBook entry point, this is the right granularity — splitting into a 'types' module + 'logic' module + 'errors' module would be over-decomposition for a contract whose entire surface is one entry function and one error constant. The structure also matches the canonical reference `~/workspace/deepbook-sandbox/sandbox/packages/example_contract/` which is a single-file module (sources/example_contract.move, lines 1-18 in upstream). No design issue.",
+    "impact": "None.",
+    "recommendation": "No action.",
+    "evidence": "module slippage_swap::slippage_swap;\n\nuse deepbook::pool::{Self, Pool};\nuse sui::clock::Clock;\nuse sui::coin::{Self, Coin};\nuse token::deep::DEEP;",
+    "confidence": "high"
+  }
+]

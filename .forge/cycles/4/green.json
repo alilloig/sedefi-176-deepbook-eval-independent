@@ -1,0 +1,8 @@
+{
+  "phase": "green",
+  "exit_code": 0,
+  "phase_pass": true,
+  "started_at": "2026-04-27T23:59:44Z",
+  "ended_at": "2026-04-27T23:59:45Z",
+  "command": "bash -c pnpm test"
+}

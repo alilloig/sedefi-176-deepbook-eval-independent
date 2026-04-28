@@ -1,0 +1,67 @@
+[
+  {
+    "id": "R3-001",
+    "title": "execute_trigger never validates that supplied pool matches vault.pool_id, allowing keeper to swap on a different pool",
+    "severity": "high",
+    "category": "error-handling",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_range": "125-150",
+    "description": "Vault<T> persists `pool_id: ID` (line 38) \u2014 the pool the user committed to at create_vault time and the pool emitted in VaultCreated for off-chain indexers. execute_trigger<Base, Quote>(vault: &mut Vault<Base>, pool: &mut Pool<Base, Quote>, ...) accepts an arbitrary `pool` argument and calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` (line 150) without ever asserting `object::id(pool) == vault.pool_id`. Because the trigger is permissionless (no `ctx.sender() == vaul",
+    "impact": "Vault<T> persists `pool_id: ID` (line 38) \u2014 the pool the user committed to at create_vault time and the pool emitted in VaultCreated for off-chain indexers. execute_trigger<Base, Quote>(vault: &mut Va",
+    "recommendation": "Add `assert!(object::id(pool) == vault.pool_id, EWrongPool);` (with a new non-zero error constant such as `EWrongPool: u64 = 1005`) at the top of execute_trigger, before the balance is withdrawn. This makes the keeper-supplied pool argument cryptographically bound to what the user signed at vault creation, restoring the user's intent and removing the pool-substitution attack surface. Add a corresponding unit test that creates the vault with one pool_id and calls execute_trigger with a different pool, expecting the EWrongPool abort.",
+    "evidence": "Vault<T> persists `pool_id: ID` (line 38) \u2014 the pool the user committed to at create_vault time and the pool emitted in VaultCreated for off-chain indexers. execute_trigger<Base, Quote>(vault: &mut Vault<Base>, pool: &mut Pool<Base, Quote>, ...) accepts an arbitrary `pool` argument and calls `pool::",
+    "confidence": "high"
+  },
+  {
+    "id": "R3-002",
+    "title": "min_quote_out hardcoded to 0 disables DeepBook's slippage guard, so the keeper-supplied current_price gate is the only correctness check on swap output",
+    "severity": "medium",
+    "category": "error-handling",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_range": "147-150",
+    "description": "execute_trigger calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` with `min_quote_out = 0`. DeepBook's pool.move declares `EMinimumQuantityOutNotMet: u64 = 12` precisely to give callers a slippage floor, and a `min_quote_out = 0` setting unconditionally disables that protection. The contract.md does document this as a deliberate decision (`min_quote_out = 0` because the keeper's `current_price` gate is the trigger-side correctness check), but the trigger gate only ve",
+    "impact": "execute_trigger calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` with `min_quote_out = 0`. DeepBook's pool.move declares `EMinimumQuantityOutNotMet: u64 = 12` precisely t",
+    "recommendation": "Two non-mutually-exclusive options. (1) Add an optional owner-configured `min_quote_out_bps_of_deposit: Option<u64>` field to Vault that, when Some, computes `min_quote_out = (deposit_amount * bps) / 10_000` at execute_trigger time and forwards it to swap_exact_base_for_quote. This gives owners a protocol-level slippage floor independent of the keeper. (2) At minimum, add an `assert!(quote_out_amount > 0, EZeroQuoteOut)` after the swap returns, which catches the degenerate case of a fully empty book \u2014 better than silently accepting a zero-value Coin<Quote> and marking the vault triggered. Either approach should be paired with a test that fires the trigger against a fixture pool with insufficient depth and asserts the abort path.",
+    "evidence": "execute_trigger calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` with `min_quote_out = 0`. DeepBook's pool.move declares `EMinimumQuantityOutNotMet: u64 = 12` precisely to give callers a slippage floor, and a `min_quote_out = 0` setting unconditionally disables that pro",
+    "confidence": "high"
+  },
+  {
+    "id": "R3-003",
+    "title": "create_vault accepts (None, None) TP/SL configuration silently, producing a vault that can never fire and is only drainable via withdraw",
+    "severity": "medium",
+    "category": "error-handling",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_range": "68-103",
+    "description": "create_vault<T> takes `tp_price: Option<u64>` and `sl_price: Option<u64>` and constructs the Vault unconditionally \u2014 there is no `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig)` guard. The contract.md explicitly flagged this as 'Optional defense-in-depth (not required for AC compliance)' with an `EInvalidTriggerConfig: u64 = 1004` constant proposed but the implementer chose to omit it. The omission means: a caller who passes `tp_price = none, sl_price = none` succeeds, ",
+    "impact": "create_vault<T> takes `tp_price: Option<u64>` and `sl_price: Option<u64>` and constructs the Vault unconditionally \u2014 there is no `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfi",
+    "recommendation": "Implement the optional `EInvalidTriggerConfig: u64 = 1004` constant suggested by contract.md and add `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig);` at the top of create_vault, before any object construction. This produces an immediate, actionable abort at the misconfiguration point rather than at fire time. Add a unit test that calls create_vault with (None, None) and asserts the EInvalidTriggerConfig abort. The cycle's contract treats this as implementer's discretion, but from an error-handling-quality standpoint the guarded version is strictly better.",
+    "evidence": "create_vault<T> takes `tp_price: Option<u64>` and `sl_price: Option<u64>` and constructs the Vault unconditionally \u2014 there is no `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig)` guard. The contract.md explicitly flagged this as 'Optional defense-in-depth (not required for A",
+    "confidence": "high"
+  },
+  {
+    "id": "R3-004",
+    "title": "TP and SL bounds are not validated for ordering coherence; a vault with tp_price <= sl_price always satisfies both conditions",
+    "severity": "low",
+    "category": "error-handling",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_range": "68-103",
+    "description": "create_vault accepts arbitrary `tp_price: Option<u64>` and `sl_price: Option<u64>` with no relational constraint. A coherent TP/SL configuration has `tp_price > sl_price` (take profit on upside, stop loss on downside). The contract performs no such check, so a user (or a malicious frontend) can create a vault with, e.g., `tp_price = some(1)` and `sl_price = some(10)`. At any keeper-supplied `current_price` in `[1, 10]`, BOTH `tp_met` and `sl_met` evaluate true simultaneously, and the trigger fir",
+    "impact": "create_vault accepts arbitrary `tp_price: Option<u64>` and `sl_price: Option<u64>` with no relational constraint. A coherent TP/SL configuration has `tp_price > sl_price` (take profit on upside, stop ",
+    "recommendation": "Two complementary fixes. (1) When BOTH thresholds are Some, add `assert!(*tp_price.borrow() > *sl_price.borrow(), EInvalidThresholdOrdering)` in create_vault to reject the inverted configuration outright. (2) Augment TriggerFired with a `triggered_by: u8` (or an enum) field that records which condition drove the fire (`0 = TP`, `1 = SL`), letting downstream consumers render the event correctly. The first fix is the conservative defense; the second improves diagnostic granularity even when both thresholds are individually sensible.",
+    "evidence": "create_vault accepts arbitrary `tp_price: Option<u64>` and `sl_price: Option<u64>` with no relational constraint. A coherent TP/SL configuration has `tp_price > sl_price` (take profit on upside, stop loss on downside). The contract performs no such check, so a user (or a malicious frontend) can crea",
+    "confidence": "high"
+  },
+  {
+    "id": "R3-005",
+    "title": "Error constants do not use Move 2024 #[error] attribute, foregoing improved CLI/explorer abort diagnostics",
+    "severity": "low",
+    "category": "error-handling",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_range": "22-27",
+    "description": "The three named error codes are declared as bare `const ENotOwner: u64 = 1001;`, `const EVaultTriggered: u64 = 1002;`, `const ETriggerConditionNotMet: u64 = 1003;`. Move 2024 supports clever-error attributes per `.move-book-docs/reference/abort-and-assert/clever-errors.md` and `.move-book-docs/book/guides/better-error-handling.md`: declaring a constant as `#[error] const ENotOwner: vector<u8> = b\"Caller is not the vault owner\";` lets the runtime surface the human-readable message in CLI output, ",
+    "impact": "The three named error codes are declared as bare `const ENotOwner: u64 = 1001;`, `const EVaultTriggered: u64 = 1002;`, `const ETriggerConditionNotMet: u64 = 1003;`. Move 2024 supports clever-error att",
+    "recommendation": "Migrate the three error constants to the Move 2024 `#[error]` attribute form, e.g.: `#[error] const ENotOwner: vector<u8> = b\"Caller is not the vault owner\";`. This composes cleanly with the existing `expected_failure(abort_code = ::tpsl_vault::tpsl_vault::ENotOwner)` test annotations (the abort_code identifier path is unchanged) while giving the keeper, the UI, and any CLI consumer a free human-readable diagnostic. Verify after the change that `sui move test -e localnet` still reports 7/7 PASS \u2014 the test annotations should not need updating.",
+    "evidence": "The three named error codes are declared as bare `const ENotOwner: u64 = 1001;`, `const EVaultTriggered: u64 = 1002;`, `const ETriggerConditionNotMet: u64 = 1003;`. Move 2024 supports clever-error attributes per `.move-book-docs/reference/abort-and-assert/clever-errors.md` and `.move-book-docs/book/",
+    "confidence": "high"
+  }
+]

@@ -1,0 +1,1805 @@
+[
+  {
+    "cluster_id": "C001",
+    "title": "Trigger evaluator runs but never builds/submits the transaction in either code path",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "199-222",
+      "157-193",
+      "183-193"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      1,
+      2
+    ],
+    "max_severity": "info",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "correctness",
+      "design"
+    ],
+    "recommendations": [
+      "Use positional order: `params: [{ MoveModule: { package, module: 'tpsl_vault' } }, cursorRef.cursor, 50, false]`. Alternatively, use `MoveEventType` filter targeting `${TPSL_VAULT_PACKAGE_ID}::tpsl_vault::VaultCreated` (also a one-arg query). Confirmed against @mysten/sui 2.16's transport.request shape.",
+      "Implement the `src/manifest.ts` module the contract suggested: at vault discovery, look up `manifest.pools` for the entry whose poolId matches vault.pool_id, then set vault.baseCoinType / vault.quoteCoinType (and quoteDecimals + the per-pool baseP/quoteP oracle ids) before `addOrUpdate`. Without this resolution, the trigger loop is provably dead.",
+      "Refactor the trigger-fire branch out of runOnePollCycle into a function that takes a signer + deepCoinId + deepPerTrigger + tpslVaultPackageId; call it from main() with the ephemeral keypair as signer. Tests can pass `signer: undefined` to skip submission OR (better) pass a fake signer to assert the build/submit path is exercised.",
+      "Send raw JSON-RPC params as [query, cursor_or_null, limit, descending_bool]. Or, switch to the SDK's client.queryEvents which handles the parameter mapping. Add a test that asserts the second positional param equals the cursor (or null) rather than an options object."
+    ],
+    "descriptions": [
+      "discoverVaultsTick builds the JSON-RPC params as [query, { descending: false, limit: 50 }, cursor]. The actual suix_queryEvents JSON-RPC contract (and the SDK 2.x client confirmed at @mysten/sui/dist/jsonRpc/client.mjs:413-419) is positional: [query, cursor, limit, descending: bool]. The keeper passes the options object in the cursor slot, the cursor (when present) in the limit slot, and never passes the descending boolean. On the live sandbox this either errors out (params type mismatch) or returns an arbitrary subset of events depending on RPC tolerance, and the cursor is never honored \u2014 so AC3.8's 'discovers vaults' end-to-end path does not work against a real node, even though the unit tests pass (the network-shape test mocks the response and ignores params shape).",
+      "discoverVaultsTick calls parseVaultCreatedEvent and registry.addOrUpdate with the raw event-derived KnownVault (vaultRegistry.ts:97-106). That record has baseCoinType / quoteCoinType undefined (they are `?:` optional and the parser never sets them). The trigger loop in runOnePollCycle skips every vault that lacks these fields: `for (const vault of registry.iterate()) { if (!vault.baseCoinType || !vault.quoteCoinType) continue; }`. Result: the keeper discovers vaults, polls Pyth, but NEVER fires a trigger because the type tags needed for the execute_trigger<Base, Quote> call were never resolved from manifest.pools. The contract's 'Implementation guidance > Generic type arguments' explicitly required the keeper to resolve these from manifest.pools[]; the deliverable does not.",
+      "Even if R1-002 were fixed and the for-loop reached the fire branch, runOnePollCycle's only action is `logTriggerAttempt(...)` followed by a comment 'Note: trigger submission requires a signer, which is only available in the full boot path. In runOnePollCycle (test seam), we skip submission.' The main() boot path (lines 293-344) calls `runOnePollCycle` directly \u2014 it does NOT pass a signer and does NOT have a separate trigger-submit step. So even in the production path, `signAndSubmitTrigger` and `buildTriggerTransaction` are never invoked. Combined with R1-002, no `trigger_fired` line will ever be emitted. The triggerSubmitter module exists but is dead code.",
+      "The Sui suix_queryEvents JSON-RPC signature is [query, cursor, limit, descending_order]. The keeper builds params as [{ MoveModule: ... }, { descending: false, limit: 50 }, cursor?]. The second element is shaped like SDK options rather than the raw cursor argument the JSON-RPC method expects, and cursor (when present) is appended in third position. This is a coupling/abstraction confusion between the high-level SDK call shape and the low-level JSON-RPC raw-fetch shape. The networkShape.test.ts mock returns canned data regardless of params shape, so the bug never surfaces in tests."
+    ],
+    "impacts": [
+      "AC3.8 fails end-to-end. The Cycle 4 contract's verification \u2014 'with the keeper running, an operator \u2026 calls create_vault, and observes a vault_discovered line in the keeper's stdout within one polling interval' \u2014 will not happen against the real sandbox. Cycle 5's UI flow (E-007 promotion) breaks at step 3.",
+      "AC3.10 fails end-to-end. The keeper observes vaults and prices but the for-loop's `continue` ensures no trigger is ever attempted. This is the exact 'structural fix that doesn't actually wire through' regression the contract's 'No stub pipelines' guidance warned against (Cycle 1 friction-log lesson 2026-04-27T22:55:00Z). Cycle 4 contract's E-007 promotion is therefore non-functional.",
+      "AC3.10 cannot be satisfied end-to-end. Even with manifest mapping fixed, the keeper logs `trigger_attempt` and stops. No on-chain execute_trigger call happens. The contract's CLI verification step 5 ('Within one KEEPER_POLL_INTERVAL_MS interval after the price update lands, the keeper logs a trigger_attempt followed by a trigger_fired line referencing the vault id and a successful on-chain tx digest') is unreachable.",
+      "Cursor-tracked discovery is non-functional against a real sandbox. Either the RPC will reject the call or it will silently ignore cursor, causing the keeper to re-process all events every poll (re-emit duplicate vault_discovered lines once dedup is bypassed by an envelope-shape change). The 'cursor is tracked per loop tick' AC3.8 verification language fails."
+    ],
+    "evidence": "    logTriggerAttempt({\n      vault_id: vault.vault_id,\n      current_price: currentPrice.toString(),\n      reason: evaluation.reason as 'tp' | 'sl',\n    });\n\n    // Note: trigger submission requires a signer, which is only available\n    // in the full boot path. In runOnePollCycle (test seam), we skip submission.\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-001",
+      "R1-002",
+      "R1-003",
+      "R2-006"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=high"
+    }
+  },
+  {
+    "cluster_id": "C004",
+    "title": "Network-shape lockdown (T-009) is a real architectural commitment but bypassed by production main path",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "86-193, 327-342",
+      "151-176",
+      "66-92",
+      "157-192"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "info",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Split into two functions: runOnePollCycleReadOnly (what currently exists, used by T-009) and runOnePollCycleWithSubmitter (accepts a signer + signAndSubmit dependency, called by main). Production must build, sign, submit, and call logTriggerFired/logTriggerFailed, then call registry.markTriggered.",
+      "Introduce a manifest module with a function resolvePool(poolId) -> { baseCoinType, quoteCoinType, baseDecimals, quoteDecimals, basePriceInfoObjectId, quotePriceInfoObjectId }. The trigger loop iterates vaults, calls this resolver, then reads only the two oracles for that pool and applies the formula with the correct quoteDecimals.",
+      "Drop pollIntervalMs from PollCycleArgs entirely. Pass deepCoinId only when (and if) the same function is generalized to also submit triggers; otherwise also drop it from the read-only path.",
+      "Extract the production main loop body into a runMainTick(args, signer, signAndSubmit) function and have the network-shape test exercise it with a no-op signer. The function-under-test for T-009 should be the same code path production runs.",
+      "Add an inFlight: Set<string> on VaultRegistry. Before submission, registry.beginFire(vaultId) \u2014 returns false if already in-flight. After submission completes (success or failure), registry.endFire(vaultId). markTriggered is set on success only."
+    ],
+    "descriptions": [
+      "runOnePollCycle is documented as the T-009 test seam and explicitly skips trigger submission with the comment 'In runOnePollCycle (test seam), we skip submission'. The production main() loop then calls the same runOnePollCycle for every tick with no separate signing/submitting path. As a result, the keeper's main loop logs trigger_attempt but NEVER calls signAndSubmitTrigger, never invokes the Ed25519 keypair generated at boot, and never emits a trigger_fired line. The whole purpose of the keeper is unwired in production.",
+      "The price-loop hardcodes 'use DEEP oracle for base and SUI oracle for quote' and quoteDecimals: 9 with comments 'Default SUI decimals; manifest-driven in production' and 'Full manifest-driven mapping is handled in the manifest module'. Neither is true: there is no manifest module, and runOnePollCycle IS the production path. A SUI/USDC pool would silently use the wrong quote decimals (USDC = 6) and the wrong oracle pair. This is the same coupling failure as R2-002 (no abstraction layer between vault.pool_id and oracle pair).",
+      "PollCycleArgs declares pollIntervalMs and deepCoinId as required fields. The function destructures them but never references them in the body (deepCoinId is only meaningful inside trigger submission \u2014 which doesn't happen, see R2-001; pollIntervalMs is the loop scheduler's concern, not a per-tick input). These dead args force every caller (including T-009 test) to pass placeholder values that mean nothing.",
+      "T-009 is genuine \u2014 the keeper's runOnePollCycle uses raw fetch JSON-RPC against manifest.network.rpcUrl and never imports any DeepBook helper SDK. The architectural commitment to 'no @mysten/deepbook-v3' is solid in package.json. However, because main() reuses the test seam unchanged (R2-001), a future maintainer who adds trigger submission to main() may import additional client surface (e.g. SuiJsonRpcClient) without re-running T-009 against the new main path. The lockdown locks down the test seam, not the production loop. This is the Cycle 1 lesson half-applied.",
+      "The trigger loop iterates registry.iterate() and (once R2-001 is fixed) would await signAndSubmitTrigger per vault. Because the main loop awaits runOnePollCycle and only then schedules the next tick, intra-tick double-fire is prevented by sequential iteration plus registry.markTriggered. However, there is no in-flight guard: if a tick takes longer than pollIntervalMs (e.g. RPC slowdown), Node's setTimeout will fire on schedule but await ordering serializes them \u2014 fine for correctness, but the contract permits parallel submission. If the implementer later adds Promise.all for parallelism, two ticks can race against the same vault before markTriggered lands. Worth flagging as a future-design hazard rather than a current bug."
+    ],
+    "impacts": [
+      "AC3.10 (keeper builds AND submits the trigger transaction signed with the ephemeral key) is unsatisfied at runtime. AC3.12 keeper-side prerequisite (trigger_fired log line, owner-routed output) cannot be observed. This is exactly the Cycle 1 'structural fix that doesn't actually wire through' regression class the contract calls out under Implementation guidance. Tests pass because T-009 only asserts on the discovery+price half and the trigger evaluation produces logTriggerAttempt without further wiring.",
+      "Multi-pool support advertised by the contract (DEEP/SUI and SUI/USDC, per manifest pools[]) does not work. Any vault on a non-DEEP/SUI pool computes a wildly wrong current_price and either fails to fire or fires with a price the on-chain assertion will reject.",
+      "Misleads readers about the function's contract; would surface as a real coupling problem if R2-001 is fixed and trigger submission is added \u2014 at which point only deepCoinId becomes meaningful (pollIntervalMs still belongs to the scheduler, not the tick).",
+      "If trigger-submission code is added to main() with a real client, T-009 will continue to pass against runOnePollCycle while production may invoke unforeseen routes (e.g. an SDK helper that pulls /faucet/v2/gas, /metrics, etc). The lockdown's safety claim is only as strong as the path it covers.",
+      "Today: no observable issue (sequential awaits). After parallel submission lands: possible double-fire of execute_trigger, second one aborts EVaultTriggered, logs trigger_failed, recoverable but noisy."
+    ],
+    "evidence": "// Outbound HTTP:\n *   - suix_queryEvents (vault discovery) \u2192 rpcUrl\n *   - sui_getObject + sui_devInspectTransactionBlock (price reads) \u2192 rpcUrl\n *\n * Never calls DeepBook indexer routes (AC3.7 \u2014 no @mysten/deepbook-v3 dep).",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R2-001",
+      "R2-003",
+      "R2-009",
+      "R2-015",
+      "R2-016"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=low"
+    }
+  },
+  {
+    "cluster_id": "C007",
+    "title": "evaluateTrigger has no try/catch in caller \u2014 unexpected vault shape kills the entire vault loop",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "183-192",
+      "165-176",
+      "178-192"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "info",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Wire signAndSubmitTrigger into the production path: construct the Ed25519 signer once at boot, plumb it into a non-test variant of the poll cycle, and on shouldFire build+sign+submit the trigger. Wrap in try/catch that calls logTriggerFailed with the abort code parsed from the SDK error string. Then mark the vault triggered ONLY after a successful response. Either remove the test-seam comment (and run real submission inside runOnePollCycle behind an injected signer) or expose a separate runOnePollCycleWithSigner that production uses.",
+      "Replace the empty catch with a structured log: emit a new 'price_calc_failed' event (or reuse pyth_read_failed with the vault_id field) carrying { vault_id, base_object_id, quote_object_id, error }. Continue iteration but make the failure visible.",
+      "Wrap the loop body in try/catch; on error log a structured 'vault_eval_failed' warn with { vault_id, error } and continue to the next vault."
+    ],
+    "descriptions": [
+      "runOnePollCycle is the ONLY thing main()'s production loop calls. After logTriggerAttempt, the function ends with the comment '// Note: trigger submission requires a signer ... we skip submission.' main() never invokes signAndSubmitTrigger, never constructs a signer, never calls buildTriggerTransaction. The keeper therefore emits trigger_attempt log lines but never fires a transaction, never logs trigger_fired, never logs trigger_failed. The 'fire path' is dead code at runtime.",
+      "calculateBaseQuotePrice throws 'zero magnitude' (paused or unpublished Pyth feed) and 'price overflow u64' (degenerate exponents). The catch block here is { continue; } with no log, no counter, no diagnostic. A vault whose pool prices are stale or paused is silently skipped every poll cycle forever. The dimension-prompt's Pyth-trust caveat (the keeper supplies current_price trustfully) is exactly the case this swallowed exception undermines: operators have no way to know the keeper is failing to evaluate.",
+      "evaluateTrigger is pure and accepts bigints, but if a malformed vault somehow has a non-bigint tp_price (e.g., post-restart deserialization corruption, upstream parser bug), the comparison `currentPrice >= vault.tp_price` throws TypeError. The for-loop has no inner try/catch, so a single bad vault aborts iteration and the rest of the vaults are skipped this tick. This is the Cycle 1 R3-007 'isolate per-vault' lesson the dimension prompt called out."
+    ],
+    "impacts": [
+      "AC3.10 unsatisfied at runtime \u2014 the keeper detects but does not fire. AC3.12 keeper-side prerequisite (the 'detects-and-fires' leg) is broken: the operator pushes the price, the keeper logs trigger_attempt, then nothing happens on-chain. The structured-log error path (trigger_failed / abort code parsing) is unreachable because submission never happens. Operators have no signal that the keeper is mis-wired beyond noticing the missing trigger_fired lines.",
+      "Silent data loss: triggers that SHOULD fire don't, because the price wasn't computable. Operators see periodic poll_cycle lines with prices but no trigger_attempt / trigger_fired and assume the price hasn't crossed the threshold. The contract requires a pyth_read_failed line on Pyth read failure; the analogous price-formula failure is invisible.",
+      "One corrupt registry entry stops trigger evaluation for every other vault each tick. The outer try in main() catches and continues, so the keeper survives; but the affected tick produces no trigger_attempt for the healthy vaults, delaying their fires by one poll interval (every poll interval, until the bad vault is removed)."
+    ],
+    "evidence": "// Note: trigger submission requires a signer, which is only available\n      // in the full boot path. In runOnePollCycle (test seam), we skip submission.",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R3-001",
+      "R3-002",
+      "R3-016"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=low"
+    }
+  },
+  {
+    "cluster_id": "C013",
+    "title": "manifest module promised by contract was never created \u2014 inlined into index.ts as a TODO",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "183-192",
+      "178-181",
+      "150-176"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "info",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Either (a) delete the unused imports + the entire signAndSubmitTrigger function + buildTriggerTransaction if AC3.10 is descoped, or (b) wire submission inside the trigger-attempt branch of runOnePollCycle, gated on an injected signer arg so the test seam still works without keys. Option (b) is what the contract actually requires.",
+      "Replace with `if (!evaluation.shouldFire) continue;` and let TypeScript narrow reason to 'tp' | 'sl' via a discriminated-union shape on EvaluatorResult.",
+      "Either implement src/manifest.ts as the contract suggested (with resolvePoolForVault returning the full tuple) and call it once per vault per tick, or document this deliberate scope cut. The hardcoded `quoteDecimals: 9` is a correctness bug in disguise \u2014 flag in design too."
+    ],
+    "descriptions": [
+      "runOnePollCycle imports buildTriggerTransaction and signAndSubmitTrigger but never calls them. After logging trigger_attempt, the body of the if-block is a comment that says 'In runOnePollCycle (test seam), we skip submission' \u2014 and the production main() loop calls runOnePollCycle as the only path, so submission is never wired up anywhere. From a simplicity lens this is the worst kind of accidental complexity: 184 LOC of triggerSubmitter.ts plus 5 imports in index.ts exist solely to be unused. The keeper cannot satisfy AC3.10 in this shape; the unused machinery should either be wired through (a single line: const { txDigest, triggerFired } = await signAndSubmitTrigger({...})) or the dead imports / dead module deleted.",
+      "`if (!evaluation.shouldFire || evaluation.reason === 'none' || evaluation.reason === 'already_triggered') continue;` \u2014 but evaluateTrigger's contract guarantees shouldFire=false IFF reason \u2208 {'none','already_triggered'}. The reason-checks are tautological with !shouldFire. Either the type system says shouldFire=true \u21d2 reason \u2208 {'tp','sl'} and the cast on line 187 is safe (then drop the redundant reason checks), or it doesn't and the cast is unsafe. Either way the current shape is overdetermined.",
+      "Contract suggests `src/manifest.ts` to resolve vault `pool_id` to `(baseCoinType, quoteCoinType, baseDecimals, quoteDecimals, basePriceInfoObjectId, quotePriceInfoObjectId)`. That module does not exist. The resolution logic is inlined into runOnePollCycle with comments confessing the fact: 'Full manifest-driven mapping is handled in the manifest module.' (the module that doesn't exist) and `quoteDecimals: 9, // Default SUI decimals; manifest-driven in production`. The keeper hardcodes one pool's mapping (DEEP base + SUI quote) and silently produces wrong current_price for any other pool. The contract permits collapse but the inlined version produces wrong outputs for the SUI/USDC pool the manifest declares."
+    ],
+    "impacts": [
+      "The 'simplicity envelope' question is moot because the code is also broken: ~190 LOC are dead, AC3.10 is unmet, and a future reader sees imports that imply a feature that does not exist. Cycle 5 will discover that the UI cannot drive the demo path.",
+      "A reader wonders if there is a third case where shouldFire=true with reason='none'. There isn't, but the code suggests so.",
+      "The keeper cannot correctly fire triggers on the SUI/USDC pool the manifest declares because quoteDecimals is hardcoded to 9 and prices are hardcoded as DEEP/SUI. The module decomposition the contract suggested would have forced the implementer to confront this."
+    ],
+    "evidence": "// Note: trigger submission requires a signer, which is only available\n    // in the full boot path. In runOnePollCycle (test seam), we skip submission.",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-001",
+      "R4-009",
+      "R4-010"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=low"
+    }
+  },
+  {
+    "cluster_id": "C022",
+    "title": "Discovered vaults never receive baseCoinType/quoteCoinType so trigger evaluation skips them",
+    "file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "line_ranges": [
+      "84-107"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "info",
+    "min_severity": "critical",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Introduce src/manifest.ts as required by contract; in index.ts after parseVaultCreatedEvent and before addOrUpdate, look up the manifest pool entry by vault.pool_id and inject the resolved coin types and decimals into the KnownVault. Make baseCoinType/quoteCoinType non-optional on the discovery-side type so the gap surfaces as a type error."
+    ],
+    "descriptions": [
+      "parseVaultCreatedEvent constructs a KnownVault with no baseCoinType / quoteCoinType (those are declared optional on the interface). The discovery path in index.ts inserts the parsed vault directly via registry.addOrUpdate. The trigger loop then guards with 'if (!vault.baseCoinType || !vault.quoteCoinType) continue;' (index.ts:158) \u2014 meaning every discovered vault is silently skipped during trigger evaluation, regardless of price. There is no module that resolves a vault's pool_id against the manifest to populate these fields."
+    ],
+    "impacts": [
+      "End-to-end keeper-detects-and-fires path is dead even if trigger submission were wired. The contract explicitly required a src/manifest.ts that resolves vault pool_id to (baseCoinType, quoteCoinType, baseDecimals, quoteDecimals, basePriceInfoObjectId, quotePriceInfoObjectId); that module is absent."
+    ],
+    "evidence": "if (!vault.baseCoinType || !vault.quoteCoinType) continue;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-002"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=critical"
+    }
+  },
+  {
+    "cluster_id": "C002",
+    "title": "quoteDecimals hard-coded to 9 \u2014 SUI/USDC pool vaults compute wrong current_price",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "165-176",
+      "151-163"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "info",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Resolve quoteDecimals from manifest.pools entry on a per-vault basis (alongside R1-002's coin-type resolution). The contract spelled this out in 'Behavior' step 2: '\u2026 resolves its pool_id to the pool's base / quote coin types and decimal counts (from the manifest's pools[] entries) \u2026'.",
+      "Resolve per-vault basePriceInfoObjectId / quotePriceInfoObjectId at vault-discovery time from a coin-type \u2192 oracle map (DEEP-coin-type \u2192 DEEP PIO, SUI-coin-type \u2192 SUI PIO; flag USDC as unsupported on this localnet). Use the resolved PIOs when reading prices in the trigger loop."
+    ],
+    "descriptions": [
+      "runOnePollCycle calls calculateBaseQuotePrice with `quoteDecimals: 9` hard-coded with the comment 'Default SUI decimals; manifest-driven in production'. The sandbox manifest carries TWO pools: DEEP_SUI (quote=SUI, 9 decimals) and SUI_USDC (quote=USDC, 6 decimals). Even if R1-002 is fixed and a SUI_USDC vault is created, the keeper would compute `current_price` with the SUI decimal (9) rather than USDC (6) \u2014 a 1000\u00d7 scaling error that would either spuriously trigger every vault (if the wrong-scaled price exceeds tp_price by orders of magnitude) or silently never trigger (if the wrong scale lands below). Comment promises the manifest-driven path 'in production' but no other code path exists in this deliverable.",
+      "runOnePollCycle picks `baseP = deepPrice; quoteP = suiPrice` for every vault, with the comment 'For now, use DEEP oracle for base and SUI oracle for quote on the DEEP/SUI pool. Full manifest-driven mapping is handled in the manifest module.' For a SUI/USDC vault the base price should be SUI and the quote price should be USDC \u2014 but USDC isn't even in the keeper's two-oracle list, and SUI as base / SUI as quote is nonsensical. Even for a Pool<DEEP, SUI> with the inverted side (`side = 1` per the Move enum), the formula here ignores side. The 'manifest module' the comment refers to does not exist in the deliverable's src/."
+    ],
+    "impacts": [
+      "AC3.10 wrong for SUI_USDC pool vaults: current_price is off by a factor of 10^3, so TP/SL fire conditions are evaluated against garbage. For DEEP_SUI vaults the value is incidentally correct (SUI is 9 decimals), masking the bug in the live demo path that uses the DEEP/SUI pool.",
+      "AC3.10 misfires on any non-DEEP/SUI pool. For the DEEP/SUI pool with side=0 the result is correct, which is why the tests pass and the demo path (DEEP/SUI TP) appears to work. But the keeper as written is single-pair-only despite the Move surface being generic. Combined with R1-002 / R1-004 this means the runtime behavior is either dead or wrong outside one happy path."
+    ],
+    "evidence": "  // For now, use DEEP oracle for base and SUI oracle for quote on the DEEP/SUI pool.\n  // Full manifest-driven mapping is handled in the manifest module.\n  const deepPrice = priceByObjectId.get(manifest.pythOracles.deepPriceInfoObjectId);\n  const suiPrice = priceByObjectId.get(manifest.pythOracles.suiPriceInfoObjectId);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-004",
+      "R1-005"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=high"
+    }
+  },
+  {
+    "cluster_id": "C005",
+    "title": "Dead 'void rpcUrl' suppresses unused warning for a const that exists only to mask a missing wire",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "293-345",
+      "299-343"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "info",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "After the discovery loop's first tick (or a synchronous initial discovery call) in main(), iterate registry and call seedTriggeredFromChain(id, getObject) for each known vault before scheduling the price loop.",
+      "Insert a getBalance + faucet POST step between the keypair generation and the loop. On failure, throw with a message identifying network.faucetUrl and the keeper address. Add an integration test against the canned fetch spy similar to T-009 to lock the call shape.",
+      "Delete the const and the 'void rpcUrl' line."
+    ],
+    "descriptions": [
+      "VaultRegistry.seedTriggeredFromChain is a documented contract decision (#3 \u2014 the keeper SHOULD re-read each known vault's on-chain triggered flag at startup before entering the trigger loop). The method exists and has unit tests, but main() never calls it. After a keeper restart immediately following a fire, the keeper would attempt a doomed-to-abort execute_trigger retry exactly as the contract warns.",
+      "Contract Behavior step 3 mandates: 'requests gas from the localnet faucet at network.faucetUrl if its balance is insufficient to fund a single execute_trigger call; failure to fund halts the boot with a clear error.' main() generates the keypair, logs keeper_started, and immediately enters the loop. There is no balance check, no faucet request, no halt-on-fund-fail. The implementer's manifest type even has faucetUrl typed as optional, signaling the intent was abandoned.",
+      "main() declares 'const rpcUrl = manifest.network.rpcUrl;' on line 301 then never uses it directly; line 343 has 'void rpcUrl; // suppress unused warning \u2014 used by runOnePollCycle via manifest'. The const + suppression pattern is a code smell \u2014 the const is genuinely dead, since runOnePollCycle reads the rpcUrl from manifest.network.rpcUrl itself. The comment justifying it is incorrect."
+    ],
+    "impacts": [
+      "Restart correctness is broken. A keeper restarted between a fire and the operator inspecting state would log trigger_failed (EVaultTriggered) on the next price tick rather than no-op. Contract decision #3 explicitly calls this out as the keeper's responsibility.",
+      "Even if R2-001 (trigger wiring) is fixed, the first execute_trigger submission will fail with insufficient gas. The keeper will log trigger_failed in a tight loop until an operator manually funds the address, with no actionable boot-time message.",
+      "Cosmetic; flags the same wiring incoherence captured in R2-001 (main() lacks the missing pieces). Clean up signals."
+    ],
+    "evidence": "logKeeperStarted({\n    keeper_address: keeperAddress,\n    tpsl_vault_package_id: config.tpslVaultPackageId,\n    poll_interval_ms: config.pollIntervalMs,\n  });\n\n  const registry = new VaultRegistry();",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-005",
+      "R2-011",
+      "R2-013"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=low"
+    }
+  },
+  {
+    "cluster_id": "C008",
+    "title": "All vaults priced with hardcoded DEEP-as-base SUI-as-quote regardless of pool",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "151-163"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "info",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Resolve each vault's pool_id against manifest.pools[] to learn (basePriceInfoObjectId, quotePriceInfoObjectId, baseDecimals, quoteDecimals) before computing current_price. If the vault's pool_id is not in the manifest, log a structured 'pool_unknown' warning and skip the vault. Do not silently fall back to DEEP/SUI."
+    ],
+    "descriptions": [
+      "The price-pair resolution comment says 'For now, use DEEP oracle for base and SUI oracle for quote on the DEEP/SUI pool' and then DOES exactly that for every vault in the registry. There is no resolution from manifest.pools[] to the correct (basePriceInfoObjectId, quotePriceInfoObjectId) pair. A vault on the SUI/USDC pool would be priced with the DEEP/SUI formula, producing a wrong current_price and either a spurious fire or a silent miss. The contract explicitly requires manifest-driven pool\u2192price-pair resolution per Behavior step 2."
+    ],
+    "impacts": [
+      "Wrong-price triggers on any non-DEEP/SUI pool. Owner who set TP=1.0 USDC/SUI gets fired at a price computed from DEEP/USD oracles. Funds get swapped on bogus signals. This is a correctness break that surfaces as an error-handling failure: the keeper does not detect or refuse the mismatch \u2014 it silently does the wrong thing."
+    ],
+    "evidence": "// For now, use DEEP oracle for base and SUI oracle for quote on the DEEP/SUI pool.\n  // Full manifest-driven mapping is handled in the manifest module.\n  const deepPrice = priceByObjectId.get(manifest.pythOracles.deepPriceInfoObjectId);\n  const suiPrice = priceByObjectId.get(manifest.pythOracles.suiPriceInfoObjectId);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-003"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=high"
+    }
+  },
+  {
+    "cluster_id": "C009",
+    "title": "Vault discovery RPC errors written to stderr, not surfaced as structured log events",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "94-100"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add a structured 'vault_discovery_failed' event to logger.ts with { error } and emit it here. Keep the per-cycle continue behavior. Optionally count consecutive failures and escalate after N to keeper_shutdown."
+    ],
+    "descriptions": [
+      "When discoverVaultsTick throws (RPC down, malformed response, query error), the catch block does process.stderr.write of an unstructured string. The AC3.11 logging contract requires line-delimited JSON on stdout for every observable behavior. There is no 'vault_discovery_failed' event in the schema and no structured representation here, so a downstream parser (Cycle 5 UI / E-007 harness) cannot detect an outage of the discovery loop \u2014 they only see poll_cycle lines proceed normally with stale registry contents."
+    ],
+    "impacts": [
+      "Operator visibility into a discovery-loop outage is degraded. A keeper whose RPC is briefly broken keeps logging poll_cycle with known_vault_count stuck at the last value; the actual cause (RPC errors) is in stderr, which structured log consumers don't read. Cycle 1's R3-007 'isolate per-vault' lesson called out exactly this failure pattern; this is the same regression at the discovery layer."
+    ],
+    "evidence": "} catch (err) {\n    // Non-fatal: log and continue to price tick.\n    process.stderr.write(`vault discovery error: ${String(err)}\\n`);\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-004"
+    ]
+  },
+  {
+    "cluster_id": "C010",
+    "title": "seedTriggeredFromChain never called on startup \u2014 restart-after-fire will re-attempt doomed trigger",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "279-281",
+      "293-344"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "info",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Replace the empty catch with: emit a structured 'vault_event_parse_failed' warn line with { tx_digest, event_seq, error }. The downstream parser can correlate the missing vault with a parse failure. Continue iterating other events as today.",
+      "After the discovery loop catches up to live and before the first price tick, iterate the registry and await registry.seedTriggeredFromChain for each known vault. Wrap in Promise.allSettled to tolerate partial RPC failures. Log a 'seed_complete' info line when done."
+    ],
+    "descriptions": [
+      "parseVaultCreatedEvent throws a descriptive error when any of the seven required fields is missing (per its own contract). The caller swallows that exception with `} catch { /* Skip malformed events */ }` \u2014 no log line, no counter, no event id captured. A schema drift between the Move contract and the keeper (e.g., a field renamed in a future Cycle 3 amendment, or a chain-side malformation) becomes invisible.",
+      "Contract decision #3 explicitly says 'On startup, before entering the trigger loop, the keeper SHOULD re-read each known vault's on-chain state via client.getObject(vaultId) (with showContent: true) and seed triggered from there; without this seeding, a keeper restart immediately after a fire would attempt a doomed-to-abort execute_trigger retry.' The implementation in main() never calls registry.seedTriggeredFromChain. After a restart, the registry rebuilds from VaultCreated events with triggered=false on every entry; the next price tick would attempt to re-fire triggers on already-fired vaults. Each attempt would abort on-chain with EVaultTriggered, costing gas and DEEP per cycle until the operator notices."
+    ],
+    "impacts": [
+      "A vault that should have been registered is silently absent from the registry. The owner's TP/SL never fires. Operator sees no trigger_attempt and no diagnostic. The descriptive error message that parseVaultCreatedEvent worked hard to construct is discarded.",
+      "On restart of a keeper that fired triggers in a prior run, every already-triggered vault generates a doomed execute_trigger on the next poll. With one DEEP per attempt and a default 5-second poll interval, this burns DEEP indefinitely (no blacklisting per contract spec \u2014 the abort doesn't suppress retries). Operator sees a flood of trigger_failed lines with EVaultTriggered abort codes (assuming R3-001 is fixed first; today the bug is masked by the no-submission bug)."
+    ],
+    "evidence": "const registry = new VaultRegistry();\n  const cursorRef = { cursor: null as string | null };\n\n  // Signal handlers.",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-005",
+      "R3-013"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=medium"
+    }
+  },
+  {
+    "cluster_id": "C017",
+    "title": "Production main() never wires trigger submission \u2014 buildTriggerTransaction / signAndSubmitTrigger / logTriggerFired / logTriggerFailed all dead",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "183-193"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "info",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "After the logTriggerAttempt call in runOnePollCycle (or, more cleanly, in main()'s wrapper around runOnePollCycle), build the PTB via buildTriggerTransaction, sign+submit via signAndSubmitTrigger using the keeper's ephemeral keypair, on success call registry.markTriggered + logTriggerFired with the on-chain TriggerFired event payload, on failure call logTriggerFailed with the abort code. Then add a vitest-driven integration test that drives runOnePollCycle with a registry pre-seeded with a triggerable vault, asserts logTriggerFired was called with a tx_digest, and asserts the spy captured a sui_executeTransactionBlock POST."
+    ],
+    "descriptions": [
+      "Inside runOnePollCycle, when evaluateTrigger returns shouldFire=true, the code emits logTriggerAttempt and then... stops. There is no call to buildTriggerTransaction, no call to signAndSubmitTrigger, no logTriggerFired, no logTriggerFailed, no markTriggered. Grep confirms: across all of src/, signAndSubmitTrigger is only IMPORTED (line 18); it is never INVOKED. Same for buildTriggerTransaction. Same for logTriggerFired and logTriggerFailed. seedTriggeredFromChain is also never invoked from production code. The 'main()' loop (line 327) only calls runOnePollCycle, which only logs trigger_attempt and continues \u2014 no actual fire ever happens. AC3.10 ('on fire, it builds and submits a transaction') is therefore unsatisfied at runtime; the unit tests T-006, T-002 (markTriggered/seed), and the trigger_fired/trigger_failed branches of T-007 verify code that lives in modules production never calls."
+    ],
+    "impacts": [
+      "The keeper as built CANNOT fire triggers. It will log trigger_attempt forever and never call execute_trigger on chain. AC3.10 fails end-to-end, AC3.12 (keeper-side prerequisites) fails (no tx_digest exists to verify), and E-007 ('keeper firing the trigger between steps 2 and 4') fails the moment an operator runs it against the live sandbox. The unit tests pass because they exercise the dead modules in isolation; this is exactly the 'tests pass on a fake stub' tautology the tests-vs-impl lens exists to detect."
+    ],
+    "evidence": "    // Note: trigger submission requires a signer, which is only available\n    // in the full boot path. In runOnePollCycle (test seam), we skip submission.\n  }\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-002"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=high"
+    }
+  },
+  {
+    "cluster_id": "C018",
+    "title": "Keeper restart re-fires already-triggered vaults \u2014 seedTriggeredFromChain defined but unused",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "199-287",
+      "297-299",
+      "293-344",
+      "183-193"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      6
+    ],
+    "max_severity": "info",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "security"
+    ],
+    "recommendations": [
+      "Add an explicit `raw.packageId === tpslVaultPackageId` (and full type prefix check `raw.type === \"${tpslVaultPackageId}::tpsl_vault::VaultCreated\"` after address-normalization) gate inside the loop in src/index.ts:253. Alternatively switch the RPC filter to `MoveEventType` with the fully-qualified type \u2014 the contract explicitly permits this and it removes the ambiguity.",
+      "Document the trust boundary explicitly in the keeper's RUNBOOK (the manifest path and its contents are part of the keeper's trusted base). For defense-in-depth, validate that `network.rpcUrl` matches `http://127.0.0.1:9000` (the documented localnet endpoint) and that all 0x-prefixed IDs in the manifest pass the same hex regex used in config.ts.",
+      "In main() between the registry construction and the poll loop, after the first discoverVaultsTick fills the registry, await Promise.all([...registry.iterate()].map(v => registry.seedTriggeredFromChain(v.vault_id, getObjectFn))) using a small JSON-RPC wrapper for sui_getObject. The implementation cost is ~10 lines.",
+      "Refactor so the signer is an injectable dependency on PollCycleArgs (matching the contract's spec for index.ts decomposition); main() constructs the signer once and passes it. After logTriggerAttempt, call buildTriggerTransaction + signAndSubmitTrigger and emit logTriggerFired/logTriggerFailed with the result. The rename of the comment `(test seam)` to `(production path)` is a tell \u2014 the green-phase synthesis stopped at the seam without finishing the production wiring."
+    ],
+    "descriptions": [
+      "discoverVaultsTick uses a MoveModule filter (`package: tpslVaultPackageId, module: 'tpsl_vault'`) which per Cycle 1 friction-log selects on the EMITTING transactionModule, not the event-defining package. The post-RPC type guard `raw.type?.endsWith('::tpsl_vault::VaultCreated')` is a string-suffix check that does NOT bind the type to the configured tpslVaultPackageId. Any attacker who publishes their own package containing a module named `tpsl_vault` and an event type whose name ends with `::tpsl_vault::VaultCreated` and emits it from a tx whose transactionModule is `tpsl_vault` could in principle have events surfaced through the RPC filter (the filter package binding constrains the emitting package, but neither layer cross-checks `raw.packageId === tpslVaultPackageId`). The keeper would then parse the foreign payload, insert a bogus KnownVault into the registry, and attempt to fire `execute_trigger` against attacker-controlled vault_id / pool_id values.",
+      "main() reads the deployment manifest with `fs.readFileSync(config.sandboxManifestPath, 'utf-8')` then `JSON.parse`s it, with no schema validation beyond TypeScript's structural typing (which is erased at runtime). The path is overridable via SANDBOX_MANIFEST_PATH. A maliciously crafted manifest could redirect `network.rpcUrl` to a hostile node (causing the keeper to leak its address, accept fabricated price/event responses, and submit signed trigger transactions to the attacker's relay) or substitute `pythOracles.{deep,sui}PriceInfoObjectId` with attacker-controlled object IDs (combined with an attacker-controlled rpcUrl this enables full price spoofing). The contract explicitly disclaims schema validation as out-of-scope (\"The keeper does not validate manifest schema beyond the field presence checks\"), so this is documented behavior \u2014 but the file-existence check at startup is the only barrier.",
+      "VaultRegistry.seedTriggeredFromChain (vaultRegistry.ts:160) is defined per contract decision #3 to re-seed the in-memory `triggered` flag from on-chain state at boot. However, main() in index.ts never calls it. After a keeper restart, the in-memory cache shows `triggered: false` for every rediscovered vault; on the first poll cycle that satisfies the TP/SL condition the keeper will attempt to fire `execute_trigger` against every already-fired vault. The on-chain Move contract's `EVaultTriggered` assertion blocks the actual execution (defense-in-depth), so funds are not at risk, but every retried vault costs the keeper a wasted gas+DEEP submission and pollutes the structured log with `trigger_failed` entries that operators must triage.",
+      "runOnePollCycle is the function the production main() calls. Its trigger-evaluation loop emits logTriggerAttempt and then exits with the comment `// Note: trigger submission requires a signer, which is only available in the full boot path. In runOnePollCycle (test seam), we skip submission.` However, main() has no separate code path that invokes buildTriggerTransaction / signAndSubmitTrigger after runOnePollCycle returns; the keypair generated in main() is never threaded into the poll cycle. From a security lens this is a silent failure mode: the keeper convinces operators (via the structured log stream the Cycle 5 UI / E-007 harness consumes) that conditions were evaluated and triggers attempted, but no on-chain transaction is ever submitted, so vault owners' TP/SL orders silently never fire."
+    ],
+    "impacts": [
+      "Registry poisoning. The keeper would burn DEEP fees attempting triggers on bogus vault IDs, log misleading `vault_discovered` lines that confuse operators, and (if the attacker's pool_id resolves to a real DeepBook pool) potentially execute swaps the operator did not authorize. On localnet the blast radius is small, but this is an exploit class that should be closed before any move beyond localnet.",
+      "On localnet (the sole supported deployment per spec) this is bounded by filesystem trust; if SANDBOX_MANIFEST_PATH is ever set from an untrusted source, the keeper becomes a trivial signing oracle for arbitrary devInspect-shaped requests.",
+      "DoS against the keeper's own DEEP balance and gas budget on restart; noise in the logs that the Cycle 5 UI / E-007 harness will see as spurious failures.",
+      "User funds locked in vaults will never be realized at the configured TP/SL prices. The Move contract's correctness is irrelevant \u2014 the keeper, the only off-chain agent that calls execute_trigger, never calls it. Worse, the log stream is positively misleading: a `trigger_attempt` line strongly implies a submission attempt followed."
+    ],
+    "evidence": "// Note: trigger submission requires a signer, which is only available\n// in the full boot path. In runOnePollCycle (test seam), we skip submission.",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R6-001",
+      "R6-002",
+      "R6-004",
+      "R6-008"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=low"
+    }
+  },
+  {
+    "cluster_id": "C028",
+    "title": "Pyth getObject RPC error not checked \u2014 silently falls through to fabricated initial_shared_version=1n",
+    "file": "independent/03-tpsl-vault/keeper/src/pythReader.ts",
+    "line_ranges": [
+      "150-170",
+      "150-184"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Check resp.ok and getObjJson.error explicitly. On error or missing data.owner.Shared.initial_shared_version, throw a clear error that names the priceInfoObjectId and the underlying RPC failure. Do not fabricate a default version.",
+      "Wrap each fetch with a per-call AbortController bounded by a sub-second-of-poll-interval timeout (e.g., 2000ms). On timeout, throw and let the caller's catch path emit pyth_read_failed / vault_discovery_failed structured lines. Optionally add a watchdog timer in the main loop that kills the process if a single tick exceeds 3x pollIntervalMs."
+    ],
+    "descriptions": [
+      "After fetch(rpcUrl, ...) for sui_getObject, the response is parsed without checking resp.ok and without checking getObjJson.error. If the RPC returns an error envelope (e.g. object not found, RPC schema drift, oracle service stopped), getObjJson.result is undefined, rawVersion is undefined, and initialSharedVersion silently defaults to `1n`. This fabricated version is then passed to devInspect, where the failure surfaces as a confusing 'shared object initial version mismatch' error rather than the actual 'PriceInfoObject not found' diagnosis.",
+      "Every fetch() call in pythReader.ts, triggerSubmitter.ts, and index.ts (discoverVaultsTick) is bare \u2014 no AbortController, no timeout, no signal. A hung TCP socket against the local RPC (or, in less benign environments, against a misbehaving full node) blocks the await indefinitely. Because the main poll loop is a sequential while loop with `await runOnePollCycle(...)`, a single hung Pyth read freezes the entire keeper: no further poll_cycle lines, no trigger evaluation for any vault, no shutdown response to SIGTERM (since the await is not interruptible)."
+    ],
+    "impacts": [
+      "Misleading error messages when the oracle-service is not running (which the contract's escalation triggers explicitly call out). Operator sees devInspect failures and chases the wrong root cause. The G-Pyth escalation pathway is undermined because the actual failure is masked.",
+      "Liveness failure mode that looks like a successful keeper from a glance at the process table. Triggers stop firing across all vaults. The structured log goes silent (no error, no progress). Recovery requires SIGKILL since SIGTERM is not picked up while await is blocked."
+    ],
+    "evidence": "const rawVersion = getObjJson.result?.data?.owner?.Shared?.initial_shared_version;\n  const initialSharedVersion = rawVersion !== undefined ? BigInt(rawVersion) : 1n;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-007",
+      "R3-008"
+    ]
+  },
+  {
+    "cluster_id": "C029",
+    "title": "parsePriceFromBcs accepts 34-byte exact match but does not warn on length-mismatch overshoot",
+    "file": "independent/03-tpsl-vault/keeper/src/pythReader.ts",
+    "line_ranges": [
+      "59-85",
+      "60-64"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "After parsePriceFromBcs, compare publishTimeSeconds to Date.now()/1000. If older than a configurable max-age (e.g., 60 seconds default), emit a structured 'pyth_stale' warn line and treat the read as a failure (skip evaluation for vaults that depend on this oracle). Document the threshold in notes/pyth-shape.md (the file already says staleness is out of scope but the dimension prompt says detection is required).",
+      "Tighten the check to `bytes.length !== PRICE_BCS_LENGTH` and throw with a clear 'BCS layout drift detected: expected 34 bytes, got N \u2014 see notes/pyth-shape.md and re-capture' message. The G-Pyth escalation pathway then fires as designed."
+    ],
+    "descriptions": [
+      "parsePriceFromBcs returns publishTimeSeconds, and notes/pyth-shape.md per the contract documents it as 'parsed but not enforced'. The Cycle 3 carry-forward concern (the Move contract trusts the keeper-supplied current_price wholesale) means the keeper is the ONLY defense against stale or paused oracles. Yet nothing in runOnePollCycle compares publishTimeSeconds to wall clock or to the previous poll's value. A paused feed returning the same price for 10 minutes would still be passed through to execute_trigger, which would fire on stale data.",
+      "The check is `if (bytes.length < PRICE_BCS_LENGTH) throw`. If devInspect returns 35+ bytes (e.g., upstream Pyth bumps the Price struct, adding a new field \u2014 exactly the G-Pyth escalation trigger), the decoder reads the first 34 bytes silently and ignores the rest. The upstream layout drift is not detected; the trailing bytes get discarded. The G-Pyth gate's whole purpose is to surface this kind of drift."
+    ],
+    "impacts": [
+      "If oracle-service silently stops publishing, the keeper continues firing triggers on the last-known price until somebody notices. Owner gets executed at a price the market has since moved away from. This is the exploit class the dimension prompt explicitly flagged ('what if Pyth feed is stale or paused? Keeper should detect').",
+      "If the bundled Pyth package is upgraded mid-cycle and the Price struct grows a field, the keeper silently mis-decodes and either reads wrong values or reads correct values but misses new defense-relevant fields (e.g., a status flag indicating the feed is paused)."
+    ],
+    "evidence": "if (bytes.length < PRICE_BCS_LENGTH) {\n    throw new Error(\n      `Pyth BCS price buffer too short: expected ${PRICE_BCS_LENGTH} bytes, got ${bytes.length}`,\n    );\n  }",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R3-009",
+      "R3-015"
+    ],
+    "manual_override": {
+      "reason": "Carry-forward concern; not blocking; documented in FEEDBACK",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "original_severity_span": "max=high, min=low"
+    }
+  },
+  {
+    "cluster_id": "C037",
+    "title": "Contract-mandated src/manifest.ts module is missing",
+    "file": "independent/03-tpsl-vault/keeper/src/",
+    "line_ranges": [
+      "n/a"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "info",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Extract SandboxManifest type, JSON loader, and a resolvePool/resolveOracles helper into src/manifest.ts. Keep index.ts focused on lifecycle + loop scheduling."
+    ],
+    "descriptions": [
+      "The contract's 'In scope' section lists src/manifest.ts as the manifest loader / pool resolver, alongside config.ts, pythReader.ts, etc. The implementer's actual module decomposition skips it; manifest typing is inlined in index.ts (SandboxManifest interface), and pool-resolution logic does not exist. This is the architectural seam the contract specifically called for to keep index.ts free of manifest knowledge."
+    ],
+    "impacts": [
+      "index.ts conflates wiring, manifest schema, pool resolution, and main loop, making it harder to test and harder to extend (new pools cannot be added without changing the entry-point file). The implementer's note that the layout 'MAY be collapsed or split differently provided each AC is satisfied' is stretched here because the satisfaction itself requires the resolver (see R2-002, R2-003)."
+    ],
+    "evidence": "// ============================================================================\n// Manifest types\n// ============================================================================\n\nexport interface SandboxManifest {",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-004"
+    ],
+    "manual_override": {
+      "reason": "Fixed by iter-2 (worker-1 iter-2 candidate; see green/synthesis-notes.md)",
+      "authorized_at": "2026-04-28T00:05:00Z",
+      "review": "cycles/4/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=info, min=high"
+    }
+  },
+  {
+    "cluster_id": "C042",
+    "title": "T-009 never invokes the trigger-submission code path it claims to lock down",
+    "file": "independent/03-tpsl-vault/keeper/tests/networkShape.test.ts",
+    "line_ranges": [
+      "144-173"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "high",
+    "min_severity": "high",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Either (a) extend runOnePollCycle to accept an optional injected signer so the test seam can drive the full discover\u2192evaluate\u2192submit path with a vault planted in the registry, OR (b) add a second test that drives signAndSubmitTrigger directly with the same fetch spy and asserts the same allowed-host / forbidden-fragment lockdown. Also seed at least one VaultCreated event into the canned suix_queryEvents response so the trigger-evaluation branch executes (currently registry.iterate() yields nothing, so even the in-loop calculateBaseQuotePrice / evaluateTrigger / logTriggerAttempt path is never hit)."
+    ],
+    "descriptions": [
+      "T-009's stated purpose (per its file header) is to assert that 'every captured fetch URL targets ... rpcUrl OR faucetUrl' and 'NEVER contains the forbidden Cycle 1 indexer fragments' \u2014 exercised through the runOnePollCycle test seam. But runOnePollCycle in src/index.ts (line 191 comment: 'in runOnePollCycle (test seam), we skip submission') deliberately stops short of calling signAndSubmitTrigger, even when a vault is registered and a trigger reason fires. Worse, the FIXTURE_MANIFEST yields zero VaultCreated events (suix_queryEvents canned response: data: []), so registry.iterate() yields zero vaults and the price-trigger loop body is also entirely skipped. The only fetches actually issued are: 1\u00d7 suix_queryEvents + 2\u00d7 sui_getObject (Pyth init shared version) + 2\u00d7 sui_devInspectTransactionBlock (Pyth read). The signAndSubmitTrigger function \u2014 which would be the natural site for a DeepBook indexer leak \u2014 is never reached. A regression that makes signAndSubmitTrigger POST to ':9008/orderbook/' would pass T-009 cleanly."
+    ],
+    "impacts": [
+      "T-009 is the only AC3.7 'no DeepBook indexer dependency' guardrail in the suite. Its current shape proves only that the discovery+Pyth-read paths are clean; the trigger-submit path (the most likely place for an SDK helper to sneak in a DeepBook route) is unmeasured. This is a Cycle 1 R5-001 / 'structural fix that doesn't actually wire through' regression class, exactly the failure mode the contract's Implementation Guidance section calls out as load-bearing."
+    ],
+    "evidence": "// Note: trigger submission requires a signer, which is only available\n    // in the full boot path. In runOnePollCycle (test seam), we skip submission.",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-001"
+    ]
+  },
+  {
+    "cluster_id": "C023",
+    "title": "Two parallel logging surfaces: logger.ts to stdout vs vaultRegistry console.warn to stderr",
+    "file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "line_ranges": [
+      "160-192",
+      "163-186",
+      "164-186"
+    ],
+    "agreement_count": 3,
+    "reviewers": [
+      2,
+      3,
+      4
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design",
+      "error-handling",
+      "simplicity"
+    ],
+    "recommendations": [
+      "Inject a logger callback into VaultRegistry (or import logger directly) and route the seed warning through a new logger emitter, e.g. logSeedTriggeredWarning. Decide once whether this event is part of the keeper's public log catalog and either add it to AC3.11 follow-up or downgrade to a debug-only channel.",
+      "Add a 'seed_triggered_warning' (or rename to 'vault_seed_failed') event to logger.ts and call it from here. Inject the logger as a dependency to keep the registry pure-ish, or import it directly.",
+      "Add `logSeedTriggeredWarning(args)` to logger.ts and inject the logger (or import it). Removes ~16 LOC, ensures every log line goes through one path."
+    ],
+    "descriptions": [
+      "VaultRegistry.seedTriggeredFromChain writes structured JSON via console.warn (which goes to stderr), inventing its own event name 'seed_triggered_warning' that is not part of the AC3.11 catalog. Meanwhile logger.ts is the documented stdout JSON channel. Operators / the Cycle 5 test harness subscribed to keeper stdout will not see these warnings; subscribers parsing stderr will receive a JSON shape (ts/level/event) that mimics but is not registered with the logger.",
+      "seedTriggeredFromChain emits warnings via console.warn(JSON.stringify(...)) directly to stderr. This bypasses the structured logger module, hard-codes a one-off event name 'seed_triggered_warning' that is not in AC3.11's enumerated list, and uses stderr instead of the contract-mandated stdout-only channel. Operators parsing stdout for events will miss these.",
+      "seedTriggeredFromChain hand-writes JSON.stringify({ ts: new Date().toISOString(), level: 'warn', event: 'seed_triggered_warning', vault_id, message }) directly to console.warn \u2014 twice. The keeper has a dedicated logger module (logger.ts) whose entire job is line-delimited JSON with this exact shape. Two costs: (a) the seed_triggered_warning event is a log line that is NOT typed in the logger, so AC3.11 contract drift is invisible; (b) the same shape is rebuilt by hand here \u2014 if the logger format changes, this drifts."
+    ],
+    "impacts": [
+      "Logging surface fragmentation. Two file boundaries can emit JSON-shaped operator-visible events; the contract was clear that 'Log lines go to stdout unconditionally'. The 'seed_triggered_warning' event is invisible to anything tailing stdout. Also makes secret redaction inconsistent \u2014 vaultRegistry bypasses logger.ts's SECRET_KEYS guard.",
+      "A vault whose on-chain content is malformed or missing produces a warning the structured-log consumer never sees. Defaults to triggered=false silently, which means restart-after-fire would re-attempt a doomed trigger (the exact scenario contract decision #3 was meant to prevent).",
+      "Silent format drift between two emitters of the same kind of line; the registry now has an undeclared dependency on console.warn that bypasses the logger's secret-redaction."
+    ],
+    "evidence": "console.warn(\n        JSON.stringify({\n          ts: new Date().toISOString(),\n          level: 'warn',\n          event: 'seed_triggered_warning',\n          vault_id: vaultId,\n          message: 'getObject returned missing or malformed content; leaving triggered=false',\n        }),\n      );",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-008",
+      "R3-012",
+      "R4-007"
+    ]
+  },
+  {
+    "cluster_id": "C011",
+    "title": "SIGINT/SIGTERM handler does not drain in-flight transactions despite contract promise",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "317-325"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      3,
+      6
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling",
+      "security"
+    ],
+    "recommendations": [
+      "Make the handler async-friendly: set running=false, await an in-flight tracker (Promise.allSettled over outstanding submits with a timeout), then logKeeperShutdown and exit. Guard against reentry with a `let shuttingDown = false` flag.",
+      "Track in-flight trigger promises in a Set; in the shutdown handler, set running=false, await Promise.allSettled(inFlight) with a 5s timeout, then emit keeper_shutdown and exit. Since trigger submission is not wired at all today (R6-008), the simpler immediate fix is to just call process.exit(0) at the END of the next loop iteration (after the loop sees running=false), instead of from inside the signal handler."
+    ],
+    "descriptions": [
+      "Contract Lifecycle section says 'install SIGINT and SIGTERM handlers that stop the two loops, drain in-flight transactions, log a keeper_shutdown line, and exit zero.' Implementation immediately calls process.exit(0) inside the signal handler. There is no await on any in-flight promise; the running flag is set to false but never checked between exit and the next loop iteration; an in-progress signAndSubmitTrigger (once R3-001 is fixed) would be killed mid-flight. Additionally, both handlers can fire reentrantly (no idempotency guard).",
+      "Contract Behavior > Lifecycle says the keeper installs SIGINT/SIGTERM handlers that \"stop the two loops, drain in-flight transactions, log a `keeper_shutdown` line, and exit zero\". The implementation logs the line and immediately calls process.exit(0) inside the handler, with no await on any in-flight `signAndSubmitTrigger` (in fairness, no submission is wired in at all \u2014 see R6-008 \u2014 but the lifecycle behavior is still wrong). If a trigger is mid-submission when the signal lands, the in-flight HTTP request to sui_executeTransactionBlock continues on the Sui side and the tx may land on-chain after the keeper has already logged shutdown."
+    ],
+    "impacts": [
+      "An in-flight execute_trigger that was signed and submitted but whose result we have not yet read could leave the on-chain state ahead of the keeper's belief: vault.triggered is true on-chain, false in the (now-dead) keeper memory. On restart, seedTriggeredFromChain (which is also unwired \u2014 see related findings) would be needed to recover. A second SIGINT during shutdown re-enters the handler and double-emits keeper_shutdown.",
+      "Operators reading logs cannot rely on `keeper_shutdown` being the truthful last line of behavior \u2014 a `trigger_fired` may yet land on-chain after shutdown is logged. This is a low-severity audit-trail issue rather than a fund-loss issue."
+    ],
+    "evidence": "const shutdown = (signal: string) => {\n    running = false;\n    logKeeperShutdown({ signal });\n    process.exit(0);\n  };",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-006",
+      "R6-007"
+    ]
+  },
+  {
+    "cluster_id": "C032",
+    "title": "tx.build({ client: undefined as never }) will throw on shared-object refs at runtime",
+    "file": "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "line_ranges": [
+      "112-118",
+      "116-117"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      2,
+      6
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design",
+      "security"
+    ],
+    "recommendations": [
+      "Either (a) accept a real SuiJsonRpcClient (or the underlying ObjectCache abstraction) into SignAndSubmitArgs and pass it to tx.build; or (b) explicitly set every shared object reference via tx.sharedObjectRef({ objectId, mutable, initialSharedVersion }) after looking versions up via raw fetch \u2014 but then the cast is no longer needed and you can pass {} as the build options. The 'as never' is the design smell.",
+      "Construct a SuiJsonRpcClient in main() (per the SDK 2.0 docs the implementer is required to read), inject it into buildTriggerTransaction so shared-object initial versions are resolved, and remove the `as never` cast. Alternatively, do an explicit sui_getObject for vaultId and poolId before build() and pass `tx.sharedObjectRef({ objectId, mutable: true, initialSharedVersion })` instead of `tx.object(...)` (the contract's Implementation guidance > Shared-object handling section explicitly documents this fallback)."
+    ],
+    "descriptions": [
+      "signAndSubmitTrigger calls 'tx.build({ client: undefined as never })' to avoid the SDK's normal client dependency. SDK 2.x Transaction.build requires a client to resolve unresolved object refs (initial shared versions) for any tx.object(id) input. The trigger PTB references vault, pool, deep-coin-source, and clock \u2014 at minimum vault and pool are shared and must be resolved. Casting to 'never' silences TypeScript but does not change runtime: the build call will throw at first unresolved input.",
+      "signAndSubmitTrigger calls `tx.build({ client: undefined as never })`. Vault and Pool are SHARED objects per the contract; the Sui SDK 2.x Transaction.build path requires a client to fetch each shared object's initial_shared_version when building. Passing undefined coerced through `as never` silences the TypeScript type system but does not change the runtime requirement. When (if) this code path is reached (it currently isn't \u2014 see R6-008), it will throw before producing tx bytes, leaving the signer unused. From a security lens, the unreachable failure path is a defense-in-depth blocker against accidentally-firing triggers, but it also means there is no live test that the signing/submission shape is correct end-to-end."
+    ],
+    "impacts": [
+      "If R2-001 is fixed and signAndSubmitTrigger is invoked at runtime, the build step fails for any shared-object reference. The cast advertises 'we know better than the type system' but production behavior contradicts that.",
+      "If R6-008 is fixed without also fixing this, the first production trigger attempt will throw inside build() and surface as a generic poll cycle error, not a structured trigger_failed log line. The log stream the harness consumes will be less informative than spec'd."
+    ],
+    "evidence": "const txBytes = await tx.build({ client: undefined as never });",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-012",
+      "R6-009"
+    ]
+  },
+  {
+    "cluster_id": "C003",
+    "title": "discoverVaultsTick swallows malformed events silently \u2014 vault_discovered miss is invisible",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "279-282",
+      "284-286"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Replace `} catch {` with `} catch (err) { logPythReadFailed(... )` \u2014 or better, add a `vault_parse_failed` event to the logger and emit it here with the offending event's id and the error message.",
+      "Always update cursorRef.cursor from json.result?.nextCursor (allowing null to also be assigned, signaling 'caught up to head'). The next tick should still query but the implementation can short-circuit when no events arrive."
+    ],
+    "descriptions": [
+      "The per-event try/catch catches every error from parseVaultCreatedEvent and discards it without logging. parseVaultCreatedEvent's whole purpose (per T-001 contract) is to throw 'a descriptive error naming the missing key' so the operator can diagnose schema drift. Swallowing those errors means the keeper silently drops events whose shape it doesn't understand, and the operator sees zero vault_discovered lines for an apparently-running keeper.",
+      "discoverVaultsTick only updates cursorRef.cursor when `json.result?.nextCursor` is truthy. When the page is exhausted (nextCursor === null), the cursor is left at its previous value. On the next tick the same query is re-issued and the cursor in the params slot (which is in-memory only) lags behind. Combined with R1-001 (cursor in wrong param slot anyway), the effective behavior on a healthy node is to re-poll the same range every tick \u2014 eventually re-emitting vault_discovered for the same vaults if the in-memory map were ever cleared. Not catastrophic since addOrUpdate dedupes, but wasteful."
+    ],
+    "impacts": [
+      "Diagnosis-impossible failure mode. If the Sui SDK changes the event envelope (e.g. fields go missing on a node upgrade), the keeper drops events with no log. AC3.18 friction-log doctrine is the codebase's cure for this exact class of silent failure.",
+      "Wasted RPC calls; potential duplicate processing if registry state is reset."
+    ],
+    "evidence": "  if (json.result?.nextCursor) {\n    cursorRef.cursor = json.result.nextCursor;\n  }",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R1-007",
+      "R1-008"
+    ]
+  },
+  {
+    "cluster_id": "C019",
+    "title": "Hardcoded quoteDecimals=9 in production poll cycle widens price-spoofing surface",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "165-176"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      6
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "security"
+    ],
+    "recommendations": [
+      "Resolve the vault's pool_id against manifest.pools[*] at vault discovery time, store baseDecimals/quoteDecimals on the KnownVault record, and pass the per-vault quoteDecimals into calculateBaseQuotePrice. The KnownVault interface already has slots for baseCoinType/quoteCoinType (vaultRegistry.ts:44-46); extend the same pattern for decimals."
+    ],
+    "descriptions": [
+      "runOnePollCycle computes current_price with `quoteDecimals: 9` hardcoded, with the comment \"Default SUI decimals; manifest-driven in production\". This is the production poll cycle (main() calls runOnePollCycle directly), not a test path. For any vault whose pool's quote coin is not SUI (e.g., the SUI/USDC pool which the contract explicitly mentions in section 1 of behavior), the formula returns a current_price off by 10^3 (USDC=6 vs SUI=9 hardcoded). Combined with the Pyth-trust model (R6-003), this means the keeper will fire triggers at consistently-wrong prices for every non-SUI-quote pool, with no on-chain check."
+    ],
+    "impacts": [
+      "User funds in non-SUI-quote vaults swap at incorrect price thresholds. From a security lens: any attacker who can predict the off-by-1000 in either direction can trade against the swap to extract value, knowing the keeper will fire 1000x earlier or later than the user intended. This is a real economic exploit vector against real user funds, even if the localnet scope keeps real-world impact bounded."
+    ],
+    "evidence": "quoteDecimals: 9, // Default SUI decimals; manifest-driven in production",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R6-005"
+    ]
+  },
+  {
+    "cluster_id": "C020",
+    "title": "Pyth BCS Option<u64> parse for tp_price/sl_price misses the {None: true} encoding",
+    "file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "line_ranges": [
+      "66-77"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "Run an actual create_vault against the live sandbox, capture the suix_queryEvents response for the VaultCreated event, and pin the exact encoding observed in a fixture (analogous to notes/pyth-shape.md's BCS capture). The test currently uses an assumed shape, not a captured one."
+    ],
+    "descriptions": [
+      "parseOptionU64 treats `null` and `undefined` as None, plus any object with `Some` as Some. Sui's parsedJson encoding for Move Option<u64> (per the suix_queryEvents JSON-RPC response format) sometimes appears as `null` (when the SDK normalizes None) and sometimes as the literal object `{ None: true }` depending on SDK version and event source. The current parser falls through the second branch and returns null only via the catch-all comment 'Treat any other falsy shape as None' \u2014 but `{ None: true }` is truthy and a non-null object, so it would actually MATCH the `'Some' in raw` check (no \u2014 it wouldn't, but it also wouldn't return null cleanly either; it falls through the second `if`). The comment claim is ambiguous; current branch returns null because `'Some' in {None:true}` is false, so the function returns null at the bottom. That's incidentally correct, but the test fixture only exercises `null` and `{ Some: '<n>' }`. If the running sandbox returns `{ None: true }` (which the SDK does emit for Move Options in some versions), behavior is correct by accident; if it returns the structural enum form `{ Some: 'x' }` for Some / `null` for None it's also fine. The fragility is unlogged."
+    ],
+    "impacts": [
+      "Risk class is misclassified-vault-fields. If the Sui SDK on the live sandbox uses a tagged-union encoding the parser isn't tested against (e.g., `{ Some: { value: '12345' } }` or a plain string '12345' for u64), tp_price/sl_price end up null when they should not \u2014 which silently disables the TP/SL gate for that vault."
+    ],
+    "evidence": "function parseOptionU64(raw: unknown): bigint | null {\n  if (raw === null || raw === undefined) {\n    return null;\n  }\n  if (typeof raw === 'object' && raw !== null && 'Some' in raw) {\n    const some = (raw as Record<string, unknown>).Some;\n    if (some === undefined || some === null) return null;\n    return BigInt(String(some));\n  }\n  // Treat any other falsy shape as None.\n  return null;\n}",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R1-006"
+    ]
+  },
+  {
+    "cluster_id": "C025",
+    "title": "registry.markTriggered / isTriggered / seedTriggeredFromChain unused in production code",
+    "file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "line_ranges": [
+      "160-205"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Either remove the three methods (and document that the spec's recommended re-seed is descoped), or wire them into main() \u2014 the seed call in a loop after the first discovery tick, and markTriggered inside the trigger-success branch when R4-001 is fixed."
+    ],
+    "descriptions": [
+      "VaultRegistry exposes seedTriggeredFromChain, markTriggered, and isTriggered. Production code (index.ts main() and runOnePollCycle) never calls any of them. They are exercised only by tests (T-002). Per contract Behavior step 3 of section 'Vault triggered ground-truth on restart' the keeper SHOULD seed triggered from chain at startup; that step is unimplemented. Per Behavior step 5 of the trigger loop the keeper MUST mark triggered after a successful fire \u2014 that is also missing (compounds R4-001)."
+    ],
+    "impacts": [
+      "On restart, the keeper would attempt to re-fire already-triggered vaults (the contract's stated failure mode the seed call was supposed to prevent). Combined with R4-001, the vault doesn't get marked triggered after a fire either."
+    ],
+    "evidence": "async seedTriggeredFromChain(vaultId: string, getObject: GetObjectFn): Promise<void> {",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-012"
+    ]
+  },
+  {
+    "cluster_id": "C033",
+    "title": "signAndSubmitTrigger missing HTTP-status check and gas-price fallback hides errors",
+    "file": "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "line_ranges": [
+      "104-114"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Check resp.ok and gasPriceJson.error. On any failure throw a clear 'reference gas price unavailable' error so the upstream catch logs trigger_failed with an actionable abort_code_or_message. Do not fabricate a default gas price."
+    ],
+    "descriptions": [
+      "Two issues in the gas-price fetch path: (1) gasPriceResp.ok is never checked. A 5xx from the RPC returns an HTML body that fails JSON.parse silently (or returns gasPriceJson.result undefined). (2) On undefined result, the keeper silently substitutes 1000n MIST as the gas price. If the network's reference gas price is higher, transactions get rejected with confusing 'gas price too low' errors that look like a Move abort rather than an RPC outage."
+    ],
+    "impacts": [
+      "Trigger submissions fail with the wrong error message when the RPC is degraded; the abort_code_or_message logged in trigger_failed misleads the operator. The fabricated 1000n is also a magic number not tied to any documented localnet value."
+    ],
+    "evidence": "const gasPriceJson = (await gasPriceResp.json()) as { result?: string };\n  const gasPrice = gasPriceJson.result ? BigInt(gasPriceJson.result) : 1000n;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-010"
+    ]
+  },
+  {
+    "cluster_id": "C038",
+    "title": "Logger emitter signatures use type-erasing 'as unknown as Record' cast that defeats safety",
+    "file": "independent/03-tpsl-vault/keeper/src/logger.ts",
+    "line_ranges": [
+      "60-112",
+      "1-112"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Either (a) destructure each emitter's known fields exactly as logKeeperStarted does and pass that explicit object to emit(), removing the cast; or (b) drop the per-event TypeScript interface and accept Record<string, unknown> + a runtime schema validator. Pick one direction and apply uniformly.",
+      "Either (a) remove logLevel from Config until a debug event surface lands, or (b) thread a logger factory createLogger(level: string) through the boot path that gates emit() against the configured level."
+    ],
+    "descriptions": [
+      "Every emitter except logKeeperStarted forwards its args object via 'args as unknown as Record<string, unknown>'. The function emit() then iterates Object.entries and skips SECRET_KEYS \u2014 so secret-redaction does work for ad-hoc keys, but the type system stops giving any guarantee that the documented AC3.11 minimum field set is present. logKeeperStarted destructures explicitly (good); the others do not. This is a design inconsistency: either ALL emitters destructure to enforce field presence at the boundary, or all emitters accept an open record and rely on runtime defense alone.",
+      "config.ts parses KEEPER_LOG_LEVEL into Config.logLevel; the contract states it 'gates additional debug events'. logger.ts has no level-gating at all \u2014 every emit() unconditionally writes to stdout. There is no concept of debug events to gate. The config field is therefore inert state."
+    ],
+    "impacts": [
+      "A future caller who mistakenly passes { vault_id, owner, pool_id, side } (no tp_price/sl_price) to logVaultDiscovered passes type-checking (the interface declares all fields required) but if a refactor relaxes the interface signature, the cast will silently swallow missing fields. Lower-impact than R2-001 through R2-006 because today's call sites are correct, but the pattern is fragile.",
+      "Operator expectation set by the config knob does not match runtime behavior. Either the knob should be removed, or debug-tier events should be added and gated behind it. As-is, an operator setting KEEPER_LOG_LEVEL=warn will still receive every info-level event."
+    ],
+    "evidence": "function emit(level: 'info' | 'warn' | 'error', event: string, extra: Record<string, unknown>): void {\n  process.stdout.write(buildLine(level, event, extra));\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-007",
+      "R2-010"
+    ]
+  },
+  {
+    "cluster_id": "C039",
+    "title": "Logger secret redaction shallow \u2014 does not recurse into nested objects or arrays",
+    "file": "independent/03-tpsl-vault/keeper/src/logger.ts",
+    "line_ranges": [
+      "21-39"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Make redaction recursive: a serializer that walks objects and arrays, omitting any key in SECRET_KEYS at any depth. Or simpler \u2014 implement a JSON.stringify replacer that drops secret keys at every depth."
+    ],
+    "descriptions": [
+      "buildLine iterates Object.entries(extra) at the top level only and skips keys in SECRET_KEYS. If a caller passes `{ keeper: { secretKey: '...' } }` or `{ keypairs: [{ privateKey: '...' }] }`, the redaction does not apply \u2014 the nested secret is serialized to stdout. Spec says 'never logged in full' for the ephemeral keypair, and the Logger T-007 test only validates top-level redaction, leaving the nested case untested."
+    ],
+    "impacts": [
+      "Defense-in-depth gap. If a future patch passes a richer 'response' or 'context' object that happens to contain a privateKey field (e.g., serializing a full keypair object for debug), the secret leaks to stdout. The keeper key is ephemeral so the blast radius is small on localnet, but the rule exists for a reason and the implementation does not honor it."
+    ],
+    "evidence": "for (const [k, v] of Object.entries(extra)) {\n    if (!SECRET_KEYS.has(k)) {\n      merged[k] = v;\n    }\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-011"
+    ]
+  },
+  {
+    "cluster_id": "C044",
+    "title": "T-006 amendment changed the test input to match a comment \u2014 the comment was right, but no test pins the SDK's u64 LE encoding for the original 32_404_071 value",
+    "file": "independent/03-tpsl-vault/keeper/tests/triggerSubmitter.test.ts",
+    "line_ranges": [
+      "46-89",
+      "100-184"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "When R5-002 is fixed and runOnePollCycle calls buildTriggerTransaction, add an assertion that the resulting PTB's pure.u64 arg for current_price equals exactly the value calculateBaseQuotePrice produced. Alternatively, in T-006, parameterize the input by computing it from a calculateBaseQuotePrice fixture call so the two tests share the same arithmetic.",
+      "Add a vitest unit test for signAndSubmitTrigger with a fetch spy that returns a canned sui_executeTransactionBlock response containing a TriggerFired event with known field values; assert the returned TriggerFiredEventPayload has each field extracted correctly. This also gives R5-001's 'second test for signAndSubmitTrigger' a natural home."
+    ],
+    "descriptions": [
+      "Per synthesis-notes.md, T-006's input value was amended from 32_404_071 (the value priceModel computes from the DEEP/SUI live capture in T-005) to 32_414_055 because the asserted bytes on line 89 are 0x67 0x99 0xee 0x01 = 0x01EE9967 = 32_414_055 (verified). The test is still meaningful \u2014 it pins that tx.pure.u64(N) emits 8-byte LE for some value of N. However, the input no longer corresponds to ANY priceModel output the rest of the suite computes; the chain of evidence 'Pyth bytes \u2192 priceModel \u2192 triggerSubmitter PTB' is broken. T-005 pins priceModel for the DEEP/SUI live shape to 7_142_857n, T-006 pins triggerSubmitter for 32_414_055n \u2014 those are unrelated numbers, and no test verifies that priceModel's output (whatever it actually is in production) is correctly forwarded into the PTB by the calling code. (Indeed, runOnePollCycle never calls triggerSubmitter at all per R5-002, so there is no production caller to test against.)",
+      "AC3.12 step 7 (contract.md lines 743-766) is called out as a 'keeper-side prerequisite for the spec's output coin routed to the owner obligation'. The verification path: read the trigger transaction's owned-objects diff via sui_getTransactionBlock and confirm Coin<Quote>, Coin<Base> residual, Coin<DEEP> residual all owned by vault.owner (NOT the keeper's address). The keeper's TriggerFired event-extraction code in signAndSubmitTrigger (lines 165-181) reads the event payload but does NOT read or verify ownership of the residual coins. No test asserts the keeper extracts the right field set from TriggerFired (the test that does test logTriggerFired in T-007 just verifies the logger writes its inputs \u2014 it does not verify those inputs are correctly extracted from the on-chain event). This is the classic 'pure-function tested, integration with on-chain shape untested' gap the contract calls out."
+    ],
+    "impacts": [
+      "The test still catches a u64 LE serialization regression for the literal 32_414_055, but the 'price flowing end-to-end through the keeper' guarantee that the suite appears to provide is illusory. A bug that swapped the currentPrice argument with deepPerTrigger in buildTriggerTransaction's call site (no such call site exists today, but the moment R5-002 is fixed, one will) would not be caught.",
+      "Medium \u2014 without an end-to-end test that drives signAndSubmitTrigger against a recorded sui_executeTransactionBlock response and asserts the extracted TriggerFired payload field-by-field, AC3.12 step 7 cannot be claimed by this cycle's test suite. It is technically deferrable to manual operator verification (the contract's wording allows that for the live-sandbox half), but the 'keeper extracts the event correctly' half is unit-testable today and isn't tested."
+    ],
+    "evidence": "      triggerFired = {\n        vault_id: String(pj['vault_id'] ?? ''),\n        owner: String(pj['owner'] ?? ''),\n        current_price: String(pj['current_price'] ?? '0'),",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-003",
+      "R5-007"
+    ]
+  },
+  {
+    "cluster_id": "C006",
+    "title": "Two competing parsing paths: SandboxManifest.pools typed as Record but contract uses array",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "50-60"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Read ~/workspace/deepbook-sandbox/sandbox/deployments/localnet.json shape during the design pass and pin SandboxManifest.pools to whatever the live sandbox emits. Add a JSON fixture under tests/fixtures/ captured from the live sandbox so the type and the runtime stay in sync."
+    ],
+    "descriptions": [
+      "Contract Behavior step 1 references 'pools[]' (an array indexed by integer position) used to map vault pool_id to coin types. SandboxManifest in index.ts types pools as 'Record<string, { ... }>' (keyed by pool name). The networkShape test fixture uses { DEEP_SUI: { ... } }. Either is workable, but the type drift between contract wording and code, combined with the absence of any pool-resolution function (R2-002, R2-003, R2-004), makes the field shape untestable end-to-end. Whichever shape the live sandbox manifest uses is not captured anywhere in code."
+    ],
+    "impacts": [
+      "When the manifest module lands (R2-004) the type may need to change, breaking the existing test fixture. Worth picking a canonical shape now and asserting against the live localnet.json."
+    ],
+    "evidence": "pools?: Record<\n    string,\n    {\n      poolId: string;\n      baseCoinType: string;",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R2-014"
+    ]
+  },
+  {
+    "cluster_id": "C012",
+    "title": "Boot-time errors crash with unstructured console.error \u2014 no keeper_failed_to_start event",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "354-358"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add a 'keeper_failed_to_start' error event to logger.ts and emit it before exiting. Include { error } so the consumer can render the cause. Keep exit code 1."
+    ],
+    "descriptions": [
+      "If loadConfig throws on bad env, or fs.readFileSync throws on missing manifest, or Ed25519Keypair construction throws, the catch at the bottom of the file does console.error('Fatal error:', err) and process.exit(1). The structured-log consumer (Cycle 5 UI / E-007 harness) cannot distinguish 'keeper crashed at boot' from 'keeper never started' because no log line is emitted to stdout. AC3.11 enumerates keeper_started and keeper_shutdown but no boot-failure event."
+    ],
+    "impacts": [
+      "Diagnosability gap. Cycle 5's UI cannot present a 'keeper failed to boot \u2014 check env' message because it has no structured signal. Operators must SSH and look at stderr to see the actual config error."
+    ],
+    "evidence": "main().catch((err) => {\n    console.error('Fatal error:', err);\n    process.exit(1);\n  });",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R3-014"
+    ]
+  },
+  {
+    "cluster_id": "C014",
+    "title": "manifest interface duplicates SandboxManifest types that should live in a manifest module",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "66-92",
+      "35-60"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Drop deepCoinId and pollIntervalMs from PollCycleArgs unless / until trigger submission is wired in. If kept, mark them at least as 'unused-pending-AC3.10-wiring'.",
+      "Move SandboxManifest to a new src/manifest.ts (typed loadManifest(path) plus resolvePoolForVault). Keep index.ts focused on boot + lifecycle. Net: same LOC overall, better separation, the SUI/USDC pool gets handled correctly."
+    ],
+    "descriptions": [
+      "PollCycleArgs declares deepCoinId and pollIntervalMs as required fields. The destructure at line 87 binds deepCoinId, but it is never referenced afterward; pollIntervalMs is never destructured at all. They appear in the type signature only because runOnePollCycle was supposed to call signAndSubmitTrigger (which needs deepCoinId). With trigger submission dead-coded (R4-001), these knobs are pure noise \u2014 every caller has to thread two arguments that have no effect.",
+      "SandboxManifest, the four package fields, the pyth oracle pair, and the pools record are inline-declared in index.ts and re-derived ad hoc in runOnePollCycle (manifest.packages.pyth?.packageId ?? '', manifest.pythOracles.deepPriceInfoObjectId, etc.). Compounds R4-010 \u2014 the contract suggested src/manifest.ts to own this type plus the pool resolution. As-is, the manifest type is the second-largest type in the codebase and it lives in the file with the longest function. Splitting it out (mirroring the contract's suggestion) makes index.ts ~30 LOC shorter and gives the SUI/USDC pool resolution a home."
+    ],
+    "impacts": [
+      "Misleads readers and tests about what the function does. The T-009 test must construct fake values for fields that affect nothing.",
+      "index.ts is 359 LOC \u2014 the largest module in the keeper. Most of the bloat is two concerns living together: the entry point AND the manifest schema AND the discovery helper AND runOnePollCycle. Decomposition would cleanly halve it."
+    ],
+    "evidence": "export interface SandboxManifest {\n  network: {\n    type: string;\n    rpcUrl: string;\n    faucetUrl?: string;\n  };",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R4-002",
+      "R4-015"
+    ]
+  },
+  {
+    "cluster_id": "C015",
+    "title": "shutdown handler sets `running = false` but immediately process.exit \u2014 flag is dead code",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "318-342",
+      "301-343",
+      "346-358"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Drop the `running` flag and the while-loop guard, OR drop process.exit and let the loop see running=false at the next setTimeout resolve. Pick one shape; do not claim both.",
+      "Delete the `const rpcUrl = manifest.network.rpcUrl` line and the corresponding `void rpcUrl;` line. Net: -2 LOC, +1 unit of clarity.",
+      "Either use `import.meta.main` (Node \u226520.11) for the simplest 1-line check, or split main() into a separate `src/main.ts` entry point that just does `await main()` unconditionally. Drops 13 LOC."
+    ],
+    "descriptions": [
+      "The shutdown handler does `running = false; logKeeperShutdown(...); process.exit(0);`. Because process.exit is synchronous and terminates the process before the next iteration of the while loop, the `running` boolean is never observed. The contract specified 'drain in-flight transactions' before exit \u2014 calling process.exit immediately defeats that. Either the boolean should actually gate the loop (drop process.exit, let the loop notice running=false at the next iteration boundary, then exit) or the boolean should be removed and the handler should just exit. As written, the pattern signals 'graceful shutdown' but provides none.",
+      "main() reads `const rpcUrl = manifest.network.rpcUrl;` on line 301 and is never used; line 343 has `void rpcUrl; // suppress unused warning \u2014 used by runOnePollCycle via manifest`. The comment is a confession that the variable is dead. The fix is trivial \u2014 remove the binding entirely.",
+      "The 5-line isMain check builds an ad-hoc URL-vs-argv comparison: `import.meta.url.endsWith(process.argv[1].replace(/\\\\/g, '/'))`. The standard Node/ESM idiom is `import.meta.main` (Node 20.11+) or `pathToFileURL(process.argv[1]).href === import.meta.url` from `node:url`. The current form silently breaks on Windows symlinks and on argv[1] containing query strings."
+    ],
+    "impacts": [
+      "Misleading code that implies a graceful-drain pattern that does not exist; an in-flight trigger submission (once wired per R4-001) would be killed mid-transaction.",
+      "One dead local + one comment that exists only to silence the compiler. Two-line subtraction.",
+      "Bug-class smell on Windows; the regex `/\\\\/g` partially anticipates this but doesn't cover all edge cases. More importantly: this logic is in the wrong file. A 3-line `bin/keeper.js` shim that imports and calls main() would remove the entire isMain block."
+    ],
+    "evidence": "const isMain =\n  typeof process !== 'undefined' &&\n  typeof import.meta !== 'undefined' &&\n  process.argv[1] !== undefined &&\n  import.meta.url.endsWith(process.argv[1].replace(/\\\\/g, '/'));",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R4-005",
+      "R4-006",
+      "R4-013"
+    ]
+  },
+  {
+    "cluster_id": "C016",
+    "title": "synthesis-notes claims eventType filter; code uses MoveModule filter",
+    "file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "line_ranges": [
+      "205-208"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Fix one or the other \u2014 preferably switch to MoveEventType, which is more precise and matches the synthesis claim. Cost: 4-line edit."
+    ],
+    "descriptions": [
+      "synthesis-notes.md line 24 says: '`eventType` filter used instead of `MoveModule` filter for `VaultCreated`'. The actual code at line 206 uses `{ MoveModule: { package: tpslVaultPackageId, module: 'tpsl_vault' } }`. This is fine on its own (the contract permits either), but the documentation drift is a simplicity smell \u2014 the synthesis notes are wrong and a reviewer trusting them would file the wrong finding. Either the filter should be MoveEventType (more precise per the contract) or the synthesis-notes should be corrected."
+    ],
+    "impacts": [
+      "Documentation/code mismatch propagates incorrect knowledge into FEEDBACK / RUNBOOK; no runtime defect today."
+    ],
+    "evidence": "{ MoveModule: { package: tpslVaultPackageId, module: 'tpsl_vault' } },",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-008"
+    ]
+  },
+  {
+    "cluster_id": "C021",
+    "title": "Vault registry preserves triggered flag across addOrUpdate but cannot recover from re-discovery without re-seed",
+    "file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "line_ranges": [
+      "131-142"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "After addOrUpdate(... wasNew=true), call `await registry.seedTriggeredFromChain(vault.vault_id, getObject)` before logging vault_discovered (or as part of the discovery tick). The seed function exists; it's just never invoked."
+    ],
+    "descriptions": [
+      "addOrUpdate preserves the existing triggered flag when the vault is already known. Good. But on a fresh keeper start, parseVaultCreatedEvent sets triggered=false unconditionally (vaultRegistry.ts:106), and the contract's 'Vault triggered ground-truth on restart' decision (#3) requires seedTriggeredFromChain to be called for each known vault before the trigger loop runs. The discoverVaultsTick at index.ts:266-282 calls addOrUpdate but never calls seedTriggeredFromChain. main()'s boot path (index.ts:293-344) also does not call it \u2014 there's no per-vault seed step before the loop. Result: a keeper restart immediately after a fire enters a doomed retry loop until the on-chain abort lands."
+    ],
+    "impacts": [
+      "On restart-after-fire, the keeper will issue a doomed execute_trigger that aborts with EVaultTriggered=1002. The keeper logs trigger_failed (which is at least visible) and continues; the next poll repeats the doomed call. AC3.10 gas-waste, but no protocol-level damage."
+    ],
+    "evidence": "      const { wasNew } = registry.addOrUpdate(vault);\n\n      if (wasNew) {\n        logVaultDiscovered({",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-013"
+    ]
+  },
+  {
+    "cluster_id": "C024",
+    "title": "VaultCreatedEventEnvelope has 8 fields, 7 of which are never read by the parser",
+    "file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "line_ranges": [
+      "19-28"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Either change the parser signature to accept just `{ parsedJson: Record<string, unknown> }` (and drop the rest of the envelope type) or actually use the envelope fields for things like dedup-by-eventSeq."
+    ],
+    "descriptions": [
+      "VaultCreatedEventEnvelope declares { id, packageId, transactionModule, sender, type, parsedJson, bcs, timestampMs } but parseVaultCreatedEvent only reads `envelope.parsedJson`. The other seven fields exist purely to make discoverVaultsTick (in index.ts) build a complete envelope object that is then thrown away. This pushes complexity into the call site (index.ts lines 254-264 build the 8-field object from the raw RPC response) for zero benefit."
+    ],
+    "impacts": [
+      "~30 LOC across two files exist to construct and type fields nobody reads. Any new RPC field requires updating the type even though parser doesn't care."
+    ],
+    "evidence": "export interface VaultCreatedEventEnvelope {\n  id: { txDigest: string; eventSeq: string };\n  packageId: string;\n  transactionModule: string;\n  sender: string;\n  type: string;\n  parsedJson: Record<string, unknown>;\n  bcs: string;\n  timestampMs: string;\n}",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-011"
+    ]
+  },
+  {
+    "cluster_id": "C030",
+    "title": "BCS decoder hand-rolls u64 LE reads instead of using @mysten/sui/bcs",
+    "file": "independent/03-tpsl-vault/keeper/src/pythReader.ts",
+    "line_ranges": [
+      "44-85"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Replace readU64LE + the manual offsets with `bcs.struct(...)` from @mysten/sui/bcs and call `.parse(bytes)`. The negative-price abort can wrap the parse result. notes/pyth-shape.md remains the canonical reference, but the code mirrors the layout declaratively."
+    ],
+    "descriptions": [
+      "parsePriceFromBcs hand-implements readU64LE in a 6-line loop and indexes 5 manual offsets (0, 1, 9, 17, 18, 26). The file already imports `bcs` from '@mysten/sui/bcs' (used in buildGetPriceUnsafeTxKindB64). A simpler form would be a single bcs.struct({ priceNegative: bcs.bool(), priceMagnitude: bcs.u64(), conf: bcs.u64(), expoNegative: bcs.bool(), expoMagnitude: bcs.u64(), timestamp: bcs.u64() }).parse(bytes) \u2014 one declaration, no hand-counted offsets, decoder errors on length mismatch automatically. The contract explicitly references the SDK 2.x bcs API as preferred."
+    ],
+    "impacts": [
+      "Off-by-one risk in offsets if the layout ever changes; ~25 LOC of hand-rolled bit-shifting that the SDK already provides; future maintainer must re-derive the layout from bytes vs. reading the schema."
+    ],
+    "evidence": "function readU64LE(bytes: Uint8Array | number[], offset: number): bigint {\n  let v = 0n;\n  for (let i = 0; i < 8; i++) {\n    v |= BigInt(bytes[offset + i]) << BigInt(i * 8);\n  }\n  return v;\n}",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R4-004"
+    ]
+  },
+  {
+    "cluster_id": "C040",
+    "title": "logger has 8 typed emitters that all delegate to one untyped emit \u2014 collapse",
+    "file": "independent/03-tpsl-vault/keeper/src/logger.ts",
+    "line_ranges": [
+      "49-112"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Replace the 8 emitters with one `log<E extends keyof EventMap>(level, event: E, fields: EventMap[E])`. Keep the SECRET_KEYS filter. Type safety improves and the file shrinks to ~40 LOC."
+    ],
+    "descriptions": [
+      "Six of the eight emitter functions (logVaultDiscovered, logPollCycle, logTriggerAttempt, logTriggerFired, logTriggerFailed, logPythReadFailed, logKeeperShutdown) are identical one-liners that call emit('info'|'warn', '<event_name>', args as unknown as Record<string, unknown>). The 'as unknown as Record<string, unknown>' cast appears 7 times \u2014 that is exactly the smell that says the type wrapper is buying nothing. Only logKeeperStarted does anything non-trivial (it destructures to drop unknown fields, which is also redundant with the SECRET_KEYS filter inside emit). 60+ LOC could collapse to a single typed `log(level, event, fields)` plus per-event TypeScript types declared near the call sites."
+    ],
+    "impacts": [
+      "Bloat: ~60 LOC for what one generic function does. Every new event name requires a new emitter, a new type, and a new test, with no actual safety gain (the cast erases the type)."
+    ],
+    "evidence": "emit('info', 'vault_discovered', args as unknown as Record<string, unknown>);",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R4-003"
+    ]
+  },
+  {
+    "cluster_id": "C041",
+    "title": "Logger redaction list misses ed25519 SDK 2.x getter and PrivateKey export shapes",
+    "file": "independent/03-tpsl-vault/keeper/src/logger.ts",
+    "line_ranges": [
+      "21-39"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      6
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "security"
+    ],
+    "recommendations": [
+      "Add `getSecretKey`, `secret`, `mnemonic`, `entropy` to the redaction set; recurse one level for object values so nested secret-shaped keys are also dropped; add a vitest case in logger.test.ts that constructs a synthetic keypair-shaped object and asserts no `suiprivkey1` substring leaks into stdout."
+    ],
+    "descriptions": [
+      "SECRET_KEYS = new Set(['secretKey', 'privateKey', 'seed']) is the redaction allow-list. Sui SDK 2.x Ed25519Keypair exposes the secret via `getSecretKey()` (returns a `suiprivkey1...` bech32 string) and `export()` (returns `{ schema, privateKey }`). The redaction key for the bech32 export is the function name `getSecretKey`, not a field name, so it cannot be redacted by key-name match if a developer ever does `logger.info('debug', { keypair })` or spreads the keypair object. Additionally, the logger only inspects top-level keys \u2014 nested `{ wallet: { privateKey: '...' } }` would leak. The spec.md `never logged in full` rule treats the logger as a defense-in-depth layer; the Set is the entire defense."
+    ],
+    "impacts": [
+      "Defense-in-depth weakening. The current code path doesn't pass the keypair to the logger anywhere (verified by grep), so this is dormant; but a future change that does so would silently leak the secret key. There is no test that asserts a keypair-shaped object cannot be logged."
+    ],
+    "evidence": "const SECRET_KEYS = new Set(['secretKey', 'privateKey', 'seed']);",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R6-006"
+    ]
+  },
+  {
+    "cluster_id": "C043",
+    "title": "T-009 fetch spy returns identical canned BCS for DEEP and SUI Pyth reads \u2014 magnitude collision passes silently",
+    "file": "independent/03-tpsl-vault/keeper/tests/networkShape.test.ts",
+    "line_ranges": [
+      "109-117"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Inspect the request body for the priceInfoObjectId argument and return DEEP-shape bytes for the DEEP oracle ID, SUI-shape bytes for the SUI oracle ID. Then add an assertion that priceResults contains two distinct magnitudes (3_058_022n and 94_371_860n per the live captures in notes/pyth-shape.md). This costs ~10 lines and converts a tautology into a real check."
+    ],
+    "descriptions": [
+      "The spy returns the same 34-byte BCS payload for every sui_devInspectTransactionBlock call regardless of which PriceInfoObject was requested. The green log confirms: poll_cycle line shows DEEP and SUI both with magnitude 3058022 and exponent -8 (DEEP price reused for SUI). The test is intentionally about 'outbound HTTP shape' so this works for its narrow purpose, but it means the test cannot detect a regression where the keeper accidentally passes the DEEP PriceInfoObject ID for both Pyth reads (and never reads SUI at all). The only line that distinguishes which oracle was read is the URL/body content, not the response."
+    ],
+    "impacts": [
+      "Low \u2014 the test's stated purpose is HTTP-shape lockdown, not price-correctness. But anyone reading the green log might be misled into thinking the keeper successfully read both oracles distinctly, when in fact the canned data masks an entire class of pool-routing bugs."
+    ],
+    "evidence": "if (method === 'sui_devInspectTransactionBlock') {\n      // Return a 34-byte BCS price (DEEP live capture) as base64.\n      const bytes = [0,102,169,46,0,0,0,0,0,95,29,0,0,0,0,0,0,1,8,0,0,0,0,0,0,0,250,156,238,105,0,0,0,0];",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R5-004"
+    ]
+  },
+  {
+    "cluster_id": "C045",
+    "title": "T-001 missing-field tests do not cover normalize-hex path on uppercase / no-prefix input",
+    "file": "independent/03-tpsl-vault/keeper/tests/vaultRegistry.test.ts",
+    "line_ranges": [
+      "63-89"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Add two cases: (a) tpslEvent({ vault_id: '0xABC123' + 'A'.repeat(58) }) and assert the parsed vault_id is the lowercase form; (b) tpslEvent({ owner: 'deadbeef' + 'b'.repeat(56) }) (no 0x prefix) and assert the parsed owner starts with '0x'. Three lines each."
+    ],
+    "descriptions": [
+      "T-001's behavior text demands: 'vault_id and pool_id are normalized 0x-prefixed lowercase hex'. The fixtures pre-supply already-lowercase 0x-prefixed values (`'0xabc123' + 'a'.repeat(58)`) \u2014 so the normalizeHex code path that lowercases an uppercase address, or that prepends '0x' when the chain returns the bare hex, is never actually exercised. parseVaultCreatedEvent's call to normalizeHex on rawVaultId / rawOwner / rawPoolId could be entirely deleted (returning the raw string back) and the existing test would still pass; the lowercase + 0x-prefix assertions on lines 66-69 trivially hold for input that is already lowercase + 0x-prefixed. The 'side: 1 is preserved' test does pin the type-coerce, but the hex-normalize path is untested."
+    ],
+    "impacts": [
+      "Low \u2014 Sui's parsedJson convention is to emit lowercase 0x-prefixed addresses anyway, so a regression that breaks the normalize path is unlikely to bite in production. But the test claims to verify the normalization and does not."
+    ],
+    "evidence": "expect(v.vault_id).toBe(VAULT_ID.toLowerCase());\n    expect(v.vault_id.startsWith('0x')).toBe(true);",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R5-005"
+    ]
+  },
+  {
+    "cluster_id": "C046",
+    "title": "T-003 has no oversized-BCS fixture; trailing-bytes attacker payload silently parses as a valid price",
+    "file": "independent/03-tpsl-vault/keeper/tests/pythReader.test.ts",
+    "line_ranges": [
+      "123-126"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      5
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "tests-vs-impl"
+    ],
+    "recommendations": [
+      "Either add a fixture with 50 bytes that asserts parsePriceFromBcs throws (tightening the guard to ===) or asserts it returns the leading-34-byte interpretation (documenting the lenient-parse behavior). Either is fine \u2014 the choice should be explicit, not accidental."
+    ],
+    "descriptions": [
+      "T-003 covers a too-short (33 byte) input that throws, and the BCS-positive / negative / negative-price-abort cases. It does NOT cover the symmetric oversized case: a 50-byte input where the first 34 bytes are a valid price and the remaining 16 are garbage. parsePriceFromBcs's guard is `if (bytes.length < PRICE_BCS_LENGTH) throw` \u2014 strictly less-than, so a 50-byte input passes the guard and decodes the leading 34 bytes as a price, silently ignoring the trailing garbage. This is probably fine on the happy path (devInspect returns exactly 34 bytes), but a malformed Pyth response or a spec change to wrap the price in a different envelope would parse silently as the wrong thing."
+    ],
+    "impacts": [
+      "Low \u2014 production Pyth devInspect returns exactly 34 bytes today. But the test promises a coverage envelope it does not actually deliver: 'truncated BCS' is covered, 'oversized BCS' (defense in depth) is not."
+    ],
+    "evidence": "  it('rejects too-short input rather than reading past the buffer', () => {\n    const truncated = new Uint8Array(33); // 1 byte short\n    expect(() => parsePriceFromBcs(truncated)).toThrow();\n  });",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R5-006"
+    ]
+  },
+  {
+    "cluster_id": "C026",
+    "title": "TP/SL precedence in evaluator matches Move correctly \u2014 confirmed against Move source",
+    "file": "independent/03-tpsl-vault/keeper/src/triggerEvaluator.ts",
+    "line_ranges": [
+      "39-49"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "No action required. Optionally add a one-line comment noting that the tie-break is purely a keeper-side log/diagnostic choice (not a Move-observable distinction)."
+    ],
+    "descriptions": [
+      "Reviewed the TP-then-SL ordering against the Move contract at tpsl_vault.move:147-149: `let tp_met = vault.tp_price.is_some() && current_price >= *vault.tp_price.borrow(); let sl_met = vault.sl_price.is_some() && current_price <= *vault.sl_price.borrow(); assert!(tp_met || sl_met, ETriggerConditionNotMet);`. The Move-side assertion only checks 'either gate met'; it does NOT actually distinguish which one fired. The keeper's evaluator returns 'tp' when both are met, which the test (T-004) pins. Since the Move contract emits a single TriggerFired event regardless and the swap path is the same either way, the keeper's tie-break is observationally indistinguishable from Move's behavior. No correctness bug \u2014 the keeper's choice of 'tp' is fine, and the assertion in the test is what 'matches Move' means here (Move evaluates `tp_met` first via short-circuit but does not preserve which one fired). Filed for clarity since the dispatch prompt asked specifically about this."
+    ],
+    "impacts": [
+      "None \u2014 the precedence question has no observable user-facing consequence given the Move contract collapses both branches into a single event."
+    ],
+    "evidence": "  if (tpMet) {\n    return { shouldFire: true, reason: 'tp' };\n  }\n  if (slMet) {\n    return { shouldFire: true, reason: 'sl' };\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-009"
+    ]
+  },
+  {
+    "cluster_id": "C027",
+    "title": "BCS sign-handling for price/expo correctly mirrors sandbox market-maker \u2014 verified",
+    "file": "independent/03-tpsl-vault/keeper/src/pythReader.ts",
+    "line_ranges": [
+      "59-85"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "No action required."
+    ],
+    "descriptions": [
+      "Reviewed parsePriceFromBcs against the canonical sandbox reference at ~/workspace/deepbook-sandbox/sandbox/scripts/market-maker/price-feed.ts:28-41. The 34-byte layout (price.negative byte at offset 0, magnitude u64 LE at 1, conf u64 LE at 9, expo.negative byte at 17, expo.magnitude u64 LE at 18, timestamp u64 LE at 26) matches; the negative-price abort matches; the exponent reconstruction `expoNegative ? -expoMagnitude : expoMagnitude` matches. The notes/pyth-shape.md file documents real captured bytes (DEEP and SUI) and the parser correctly decodes them \u2014 the tests use the same captured magnitudes (3_058_022 and 94_371_860) and pass. Sign-bit handling is correct because Pyth's I64 BCS encoding is NOT two's-complement \u2014 it's a struct {negative: bool, magnitude: u64}, so the parser doesn't need bit manipulation. The dispatch's concern about 'sign-bit handling for two's-complement at the BCS layer' does not apply: the on-wire encoding sidesteps it entirely."
+    ],
+    "impacts": [
+      "None \u2014 confirmed correct."
+    ],
+    "evidence": "  const exponent = expoNegative ? -expoMagnitude : expoMagnitude;",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-010"
+    ]
+  },
+  {
+    "cluster_id": "C031",
+    "title": "PTB references vault.pool_id correctly via the vault record's stored field",
+    "file": "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "line_ranges": [
+      "40-62"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "When wiring the call site (per R1-003), pass `poolId: vault.pool_id` explicitly \u2014 do not look up 'the' pool from a config field."
+    ],
+    "descriptions": [
+      "Reviewed against the Cycle 3 pool-binding lesson (Move contract enforces `assert!(object::id(pool) == vault.pool_id, EWrongPool)` at tpsl_vault.move:144). buildTriggerTransaction receives `poolId` as an explicit argument (not hard-coded), and its caller path SHOULD pass vault.pool_id. The keeper's runOnePollCycle never gets to the call site (R1-003), but the function signature is correct: poolId is a per-call argument, the type tags come from the vault record, and the call would pass the right pool if invoked. The triggerSubmitter is correct in isolation; only its invocation is missing."
+    ],
+    "impacts": [
+      "None on the function in isolation; integration is broken via R1-003."
+    ],
+    "evidence": "      tx.object(vault.vault_id),\n      tx.object(poolId),",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-011"
+    ]
+  },
+  {
+    "cluster_id": "C034",
+    "title": "synthesis-notes Transaction#serialize() deprecation note \u2014 the keeper does not call serialize at all",
+    "file": "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "line_ranges": [
+      "1-184"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      4
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "simplicity"
+    ],
+    "recommendations": [
+      "Migrate the T-006 test from tx.serialize() to tx.getData() per the SDK 2.0 docs. Production source needs no change."
+    ],
+    "descriptions": [
+      "synthesis-notes flagged Transaction#serialize() deprecation. Searching the keeper source: serialize() is not called anywhere in src/ \u2014 only in the test file (tests/triggerSubmitter.test.ts uses it for structural inspection). So the deprecation does not affect production. The simplicity finding is on the test side: T-006 binds to `Transaction.serialize()` which the SDK has marked deprecated. Migrating tests to `tx.getData()` (the SDK 2.x replacement) future-proofs T-006 without touching production code."
+    ],
+    "impacts": [
+      "No production impact; tests will start emitting deprecation warnings on every run as the SDK matures."
+    ],
+    "evidence": "asserts on the structural shape \u2014 NOT on internal SDK encoding bytes.",
+    "confidence_spread": [
+      "medium"
+    ],
+    "source_ids": [
+      "R4-014"
+    ]
+  },
+  {
+    "cluster_id": "C035",
+    "title": "Pyth-trust model is load-bearing and undocumented in keeper source",
+    "file": "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "line_ranges": [
+      "40-62"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      6
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "security"
+    ],
+    "recommendations": [
+      "Add a one-line module-comment at the top of triggerSubmitter.ts (and/or in notes/pyth-shape.md) stating: \"The Move contract trusts the keeper-supplied current_price; the keeper is the price oracle from the contract's perspective. Compromised keeper key or manifest = compromised price.\" This is documentation, not code."
+    ],
+    "descriptions": [
+      "The keeper supplies `current_price: u64` to `tpsl_vault::execute_trigger`, and per Cycle 3 review the Move contract's only protection against a wrong price is the TP/SL gate itself (the contract trusts the keeper for the price value). This means the keeper is a fully privileged price oracle from the Move contract's perspective: a compromised keeper key, a manifest-tampering attacker (R6-002), or even a logic bug in the keeper's price computation (see R6-005 re: hardcoded quoteDecimals=9) directly translates to vaults firing at the wrong on-chain price, with the residual / quote routed to the vault owner regardless of whether the price was ever real. This trust assumption is intentional per spec but is not flagged anywhere in the keeper sources or notes/pyth-shape.md."
+    ],
+    "impacts": [
+      "Operators reading the keeper code in isolation may assume the on-chain Move contract validates the price. Future cycles or external integrators inheriting this code could miss the implicit trust requirement."
+    ],
+    "evidence": "tx.pure.u64(currentPrice),",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R6-003"
+    ]
+  },
+  {
+    "cluster_id": "C036",
+    "title": "calculateBaseQuotePrice mirrors sandbox formula and handles zero/overflow per contract",
+    "file": "independent/03-tpsl-vault/keeper/src/priceModel.ts",
+    "line_ranges": [
+      "39-57"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      1
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "correctness"
+    ],
+    "recommendations": [
+      "No action required."
+    ],
+    "descriptions": [
+      "Verified the formula against the sandbox market-maker (~/workspace/deepbook-sandbox/sandbox/scripts/market-maker/price-feed.ts:127-139). Both branches of the scaledExpo sign check match; the zero-magnitude throw matches the sandbox's defensive check (which logs and returns null instead of throwing \u2014 the keeper goes one step further by aborting, which the contract's tests pin and is consistent with the Move contract receiving u64 \u2014 there is no 'sentinel zero' in the protocol). The U64_MAX overflow check is keeper-only (sandbox uses bigint without bounds) and is correct because Move's current_price arg is u64; passing > 2^64-1 would be a silent BigInt-to-bytes truncation in tx.pure.u64() were the check absent. No correctness issue."
+    ],
+    "impacts": [
+      "None \u2014 confirmed correct."
+    ],
+    "evidence": "  if (baseMagnitude === 0n || quoteMagnitude === 0n) {\n    throw new Error('zero magnitude');\n  }",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-012"
+    ]
+  }
+]

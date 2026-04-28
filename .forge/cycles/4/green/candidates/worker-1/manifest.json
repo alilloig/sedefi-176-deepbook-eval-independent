@@ -1,0 +1,18 @@
+{
+  "worker": 1,
+  "iteration": 2,
+  "target_files": [
+    "independent/03-tpsl-vault/keeper/src/index.ts",
+    "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "independent/03-tpsl-vault/keeper/src/config.ts",
+    "independent/03-tpsl-vault/keeper/src/logger.ts",
+    "independent/03-tpsl-vault/keeper/src/priceModel.ts",
+    "independent/03-tpsl-vault/keeper/src/pythReader.ts",
+    "independent/03-tpsl-vault/keeper/src/triggerEvaluator.ts"
+  ],
+  "lines_changed": 142,
+  "blocked": false,
+  "tests_pass": true,
+  "notes": "iter-2 fixes applied: (1) wired submitter in production main — runOnePollCycle now accepts optional TriggerSubmitter; when present, calls buildTriggerTransaction + signAndSubmitTrigger + logTriggerFired/logTriggerFailed + markTriggered; T-009 test seam passes no submitter so submission is correctly skipped; (2) parseVaultCreatedEvent now has vault's baseCoinType/quoteCoinType/quoteDecimals populated at discovery time via resolvePoolEntry() manifest lookup (pool_id → manifest.pools entry); trigger loop's guard 'if (!baseCoinType || !quoteCoinType) continue' now passes for known-pool vaults; (3) suix_queryEvents params reordered to positional [query, cursor, limit, descending] per JSON-RPC contract; cursor always updated including when null; (4) per-pool oracle resolution via buildCoinTypeOracleMap() — each vault's baseCoinType/quoteCoinType mapped to the correct PriceInfoObjectId; quoteDecimals read from vault.quoteDecimals (populated from manifest); (5) seedTriggeredFromChain wired in main() boot after first discovery tick to prevent restart-after-fire doomed retries; (6) tx.build() hazard fixed via thin minimalClient shim that calls sui_multiGetObjects via raw fetch — removes 'undefined as never' cast; KnownVault gains optional quoteDecimals field; SandboxManifest.pools now typed as Record<string, PoolEntry> with helper functions resolvePoolEntry and buildCoinTypeOracleMap."
+}

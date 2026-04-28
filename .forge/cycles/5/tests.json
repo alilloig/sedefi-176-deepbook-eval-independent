@@ -1,0 +1,92 @@
+[
+  {
+    "id": "T-001",
+    "name": "App renders without throwing inside DAppKitProvider when wallet is not connected",
+    "behavior": "Mounting <App /> wrapped in <QueryClientProvider> + <DAppKitProvider dAppKit={dAppKit}> in jsdom produces no thrown error and surfaces the <ConnectButton /> (or an equivalent connect-prompt element) so the spec UX-Flow §6 'wallet not connected' state is reachable. useCurrentAccount() is mocked to return null. Asserts the React 2.0 dapp-kit shape works (NOT the legacy 1.x SuiClientProvider+WalletProvider).",
+    "kind": "integration",
+    "target_file": "independent/03-tpsl-vault/ui/src/App.tsx",
+    "test_file": "independent/03-tpsl-vault/ui/src/App.test.tsx",
+    "covers_contract_requirement": "AC3.13"
+  },
+  {
+    "id": "T-002",
+    "name": "dapp-kit module pre-imports the deployer key into the InMemorySignerAdapter before createDAppKit resolves",
+    "behavior": "Importing src/dapp-kit.ts with VITE_DEV_WALLET_PRIVATE_KEY set to a fixture private key results in adapter.importAccount being invoked with an Ed25519Keypair whose address matches the fixture key's address, AND the import promise is awaited BEFORE createDAppKit is called. Mocks @mysten-incubation/dev-wallet/adapters' InMemorySignerAdapter and @mysten/dapp-kit-react's createDAppKit; asserts the call ordering by recording the sequence of mock invocations. This is the AC3.13 'auto-loaded dev wallet' obligation — the dashboard's lines 8-27 pattern verbatim.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/ui/src/dapp-kit.ts",
+    "test_file": "independent/03-tpsl-vault/ui/src/dapp-kit.test.ts",
+    "covers_contract_requirement": "AC3.13"
+  },
+  {
+    "id": "T-003",
+    "name": "useVaultList filters VaultCreated events to only those whose owner matches currentAccount.address",
+    "behavior": "Given a fixture set of three parsed VaultCreated events — two owned by address A, one owned by address B — and a currentAccount whose address is A, the hook returns exactly the two A-owned vaults; the B-owned vault is absent. Switching the currentAccount address to B re-runs the effect (the hook's dependency on the account address) and returns exactly the one B-owned vault. SuiClient and getObject are mocked; the hook's chain-direct read shape is exercised but the assertion lives on the rendered/filtered list.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/ui/src/useVaultList.ts",
+    "test_file": "independent/03-tpsl-vault/ui/src/useVaultList.test.ts",
+    "covers_contract_requirement": "AC3.14"
+  },
+  {
+    "id": "T-004",
+    "name": "useVaultList omits vaults whose on-chain getObject reports balance==0 AND triggered==false (post-withdraw filter)",
+    "behavior": "Given two VaultCreated events both owned by the current account, where one vault's mocked getObject returns balance='0' and triggered=false (post-withdraw state) and the other returns balance='1000000' and triggered=false, the hook returns exactly the funded vault. A third vault whose getObject returns a deleted/not-found result is also omitted. This is the 'Withdrawn render' rule from the contract — withdrawn vaults are OMITTED entirely (no history subsection, no greyed row).",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/ui/src/useVaultList.ts",
+    "test_file": "independent/03-tpsl-vault/ui/src/useVaultList.test.ts",
+    "covers_contract_requirement": "AC3.16"
+  },
+  {
+    "id": "T-005",
+    "name": "CreateVaultForm submits a PTB whose moveCall target, type arguments, and argument shape match the contract",
+    "behavior": "Filling the form with pool=SUI_USDC, amount='1000000', side=0, tp_price='2000000000', sl_price empty, then clicking submit, results in a single signAndExecuteTransaction call whose serialized Transaction (or recorded mock-call) contains: target = `${TPSL_VAULT_PACKAGE_ID}::tpsl_vault::create_vault`, typeArguments = [pool.baseCoinType], and five positional arguments in this order: a coin from splitCoins, the pool_id, the side u8, an Option<u64> Some(2000000000) for tp_price, and an Option<u64> None for sl_price. Mocks dAppKit.signAndExecuteTransaction (or useSignAndExecuteTransaction) and SuiClient.getCoins; asserts the submitted Transaction shape rather than the raw bytes (assertion targets the moveCall plus arg-builder calls, which are SDK-stable).",
+    "kind": "integration",
+    "target_file": "independent/03-tpsl-vault/ui/src/CreateVaultForm.tsx",
+    "test_file": "independent/03-tpsl-vault/ui/src/CreateVaultForm.test.tsx",
+    "covers_contract_requirement": "AC3.15"
+  },
+  {
+    "id": "T-006",
+    "name": "CreateVaultForm rejects submission when both TP and SL inputs are empty",
+    "behavior": "Filling the form with valid pool/amount/side but leaving BOTH tp_price and sl_price blank and clicking submit results in (a) no signAndExecuteTransaction call being issued, AND (b) an inline validation error rendered to the user mentioning that at least one of TP or SL must be set. This is the contract's client-side 'optional EInvalidTriggerConfig defense' — the Move package may or may not enforce on-chain, but the form enforces it.",
+    "kind": "integration",
+    "target_file": "independent/03-tpsl-vault/ui/src/CreateVaultForm.tsx",
+    "test_file": "independent/03-tpsl-vault/ui/src/CreateVaultForm.test.tsx",
+    "covers_contract_requirement": "AC3.15"
+  },
+  {
+    "id": "T-007",
+    "name": "CreateVaultForm calls vault-list refresh after a successful signAndExecuteTransaction",
+    "behavior": "With a mocked signAndExecuteTransaction that resolves successfully and a refresh callback (the same function the production timer invokes per Contract decisions #4) injected via prop or context, submitting the form invokes the refresh callback exactly once after the success branch resolves. The form's input state is also cleared on success. Asserts the refresh function reference is the SAME function the production wiring uses — the test does not stub a separate refresh path that production never reaches.",
+    "kind": "integration",
+    "target_file": "independent/03-tpsl-vault/ui/src/CreateVaultForm.tsx",
+    "test_file": "independent/03-tpsl-vault/ui/src/CreateVaultForm.test.tsx",
+    "covers_contract_requirement": "AC3.15"
+  },
+  {
+    "id": "T-008",
+    "name": "VaultRow renders a Withdraw button on a non-triggered vault and submits the correct withdraw PTB on click",
+    "behavior": "Rendering <VaultRow /> with a fixture vault {triggered: false, balance: '1000000', baseCoinType: '0x2::sui::SUI', vaultId: '0xabc...'} surfaces an enabled Withdraw button. Clicking the button invokes signAndExecuteTransaction once with a Transaction whose moveCall target = `${TPSL_VAULT_PACKAGE_ID}::tpsl_vault::withdraw`, typeArguments = ['0x2::sui::SUI'], and a single argument that is tx.object('0xabc...'). On the resolved-success branch, the row's injected refresh callback is invoked exactly once. Mocks signAndExecuteTransaction.",
+    "kind": "integration",
+    "target_file": "independent/03-tpsl-vault/ui/src/VaultRow.tsx",
+    "test_file": "independent/03-tpsl-vault/ui/src/VaultRow.test.tsx",
+    "covers_contract_requirement": "AC3.16"
+  },
+  {
+    "id": "T-009",
+    "name": "VaultRow on a triggered vault renders the Triggered badge plus quote_out_amount and omits the Withdraw button",
+    "behavior": "Rendering <VaultRow /> with a fixture vault {triggered: true, vaultId: '0xabc...'} AND a fixture TriggerFired event whose vault_id matches and whose quote_out_amount = '4242000000' surfaces (a) a clearly-labeled 'Triggered' badge element, (b) the rendered text contains the formatted quote_out_amount value '4242000000' (or a decimals-formatted equivalent that includes the digits 4242), and (c) no Withdraw button is present in the row. Asserts via testing-library queryByRole('button', { name: /withdraw/i }) returning null.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/ui/src/VaultRow.tsx",
+    "test_file": "independent/03-tpsl-vault/ui/src/VaultRow.test.tsx",
+    "covers_contract_requirement": "AC3.17"
+  },
+  {
+    "id": "T-010",
+    "name": "outbound HTTP from the UI's data layer only targets Sui RPC :9000 — never indexer pool-keyed routes on :9008",
+    "behavior": "Spies on global fetch, drives the UI's data layer (manifest fetch + useVaultList chain reads + a representative create/withdraw submit) end-to-end against a fixture manifest whose rpcUrl is http://127.0.0.1:9000, and asserts every captured fetch URL either targets 127.0.0.1:9000 / localhost:9000 (Sui RPC) or the in-app /localnet.json endpoint. No URL contains :9008/get_pools, :9008/orderbook/, :9008/trades/, :9008/ticker, or any other indexer pool-keyed fragment. JSON-RPC method allowlist: only sui_getObject, sui_multiGetObjects, suix_queryEvents, suix_getDynamicFields. Lifted from Cycle 1 T-014 / Cycle 4 T-009 lessons.",
+    "kind": "integration",
+    "target_file": "independent/03-tpsl-vault/ui/src/useVaultList.ts",
+    "test_file": "independent/03-tpsl-vault/ui/src/networkShape.test.ts",
+    "covers_contract_requirement": "AC3.13"
+  }
+]

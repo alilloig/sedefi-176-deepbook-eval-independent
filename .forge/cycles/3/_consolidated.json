@@ -1,0 +1,384 @@
+[
+  {
+    "cluster_id": "C009",
+    "title": "current_price is attacker-controlled and combines with min_quote_out = 0 to enable price-manipulation MEV",
+    "line_ranges": [
+      null
+    ],
+    "agreement_count": 3,
+    "reviewers": [
+      4,
+      5,
+      6
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      null
+    ],
+    "recommendations": [
+      ""
+    ],
+    "descriptions": [
+      "",
+      "Vault<Base> stores pool_id: ID at construction time and emits it in VaultCreated, signalling that the vault is bound to a specific DeepBook pool. However, execute_trigger<Base, Quote> takes pool: &mut Pool<Base, Quote> as a separate parameter and never asserts that object::id(pool) == vault.pool_id. A permissionless caller (the trigger is explicitly open to anyone) can therefore supply ANY Pool<Base, Quote> with matching base/quote type parameters - including a low-liquidity, freshly-created, or otherwise manipulated pool - and the swap will proceed against that pool with min_quote_out = 0. The owner receives Coin<Quote> from the wrong pool, almost certainly at a materially worse price than the pool the user selected when creating the vault. This is direct economic harm enabled by a missing assert that the contract's own data model already implies. Severity is high because (a) the attack is permissionless and zero-cost beyond gas, (b) the slippage floor is 0 so there is no compensating defense, (c) any base/quote pair can be deployed permissionlessly on DeepBook so an attacker can stand up a poisoned pool on demand, and (d) the spec itself names pool_id as a stored field that the keeper / UI is expected to honor - the Move package is the only layer that can enforce it. Recommended fix: assert!(object::id(pool) == vault.pool_id, EWrongPool) at the top of execute_trigger, with a new non-zero error constant EWrongPool: u64 = 1005.",
+      "execute_trigger accepts current_price: u64 from the caller as the sole gate (lines 136-138) and passes min_quote_out = 0 to deepbook::pool::swap_exact_base_for_quote (line 150). The Move package performs no on-chain validation of current_price against any oracle (per spec: keeper cross-checks Pyth off-chain). Because the trigger is permissionless, any address can call execute_trigger with current_price = vault.tp_price (or any value satisfying the gate) the moment a vault exists. Combined with min_quote_out = 0, this means an MEV attacker can: (1) observe a vault on-chain, (2) push the bound DeepBook pool to a worse price by sandwiching or wash-trading, (3) call execute_trigger immediately with a satisfying current_price and force settlement at the manipulated mid. The owner eats the full slippage with no on-chain protection. The contract is intentionally designed to delegate this gate to the keeper (per Behavior section), but this is a security-relevant design property worth surfacing because: (a) the spec assumes one trusted keeper, but the function is open to any caller, so the trust assumption is structurally broken once a real attacker enters the picture, and (b) downstream cycles (3b keeper, 3c UI) cannot defend the vault from this - the only on-chain mitigation point is the Move package itself. Mitigations the implementer could add without breaking spec: take min_quote_out: u64 as an additional parameter (keeper computes from depth), or validate current_price against the pool's mid_price() reading at trigger time with a configurable bps tolerance. If the project explicitly accepts the risk for v1, this finding is documentation-grade rather than blocking - but it must not be silent.",
+      "create_vault does not validate that at least one of tp_price or sl_price is Some. A vault constructed with both as None can never satisfy the trigger condition (lines 136-138 will always evaluate tp_met = false and sl_met = false), so execute_trigger always aborts with ETriggerConditionNotMet. The funds are still recoverable by the owner via withdraw, so this is not a custody-loss bug, but it is a footgun: a misconfigured create_vault call locks funds into a shared object that exists only as a no-op record. The contract spec itself documents EInvalidTriggerConfig as 'optional defense-in-depth' (lines 191-198 of contract.md), which the implementer chose to omit. Recommend either adding the guard (one-line assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig)) or adding a code comment in create_vault explicitly acknowledging the trade-off, since the spec calls it out as a recommended check. Severity is low because the funds remain owner-recoverable; no attacker exploitation path."
+    ],
+    "impacts": [
+      ""
+    ],
+    "evidence": "",
+    "confidence_spread": [
+      null
+    ],
+    "source_ids": [
+      "R4-001",
+      "R4-002",
+      "R4-003",
+      "R4-004",
+      "R4-005",
+      "R5-001",
+      "R5-002",
+      "R6-001",
+      "R6-002",
+      "R6-003"
+    ],
+    "manual_override": {
+      "reason": "Iter-1 high finding R3-001/R6-001 (pool_id not validated) was fixed in iter-2 with EWrongPool=1004 assert. Remaining high cluster (price not on-chain verified) is intentional per spec design \u2014 keeper reads on-chain Pyth and supplies current_price; on-chain Pyth integration is out of scope for Slot 3 Move per spec.",
+      "authorized_at": "2026-04-28T00:35:00Z",
+      "review": "cycles/3/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=high, min=low"
+    }
+  },
+  {
+    "cluster_id": "C001",
+    "title": "current_price is keeper-supplied and never bounded against vault's TP/SL semantics \u2014 adversarial caller can fire trigger at unfavorable market price",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_ranges": [
+      "125-150",
+      "128-138"
+    ],
+    "agreement_count": 2,
+    "reviewers": [
+      1,
+      3
+    ],
+    "max_severity": "high",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "correctness",
+      "error-handling"
+    ],
+    "recommendations": [
+      "Add `assert!(object::id(pool) == vault.pool_id, EWrongPool);` (with a new non-zero error constant, e.g., `EWrongPool: u64 = 1005`) at the top of `execute_trigger`, after the `EVaultTriggered` check and before the condition-gate check. This binds the on-chain swap target to the value the owner committed to in `create_vault`, removes one degree of freedom from a permissionless caller, and keeps the stored `pool_id` field semantically meaningful. If the contract author intentionally wants the keeper to reroute, document the choice explicitly in the contract decisions section.",
+      "Two complementary mitigations the implementer can consider for Cycle 3b/3c work, neither required to satisfy Cycle 3a's AC3.4: (1) thread an owner-configured `min_quote_out: u64` field on the Vault (set at create-time by the owner from a slippage-tolerance UI input) and pass it to `swap_exact_base_for_quote` instead of `0`; this gives the owner a real on-chain floor independent of the keeper's `current_price` honesty. (2) Replace the keeper-supplied `current_price` with an on-chain Pyth `PriceInfoObject` read inside `execute_trigger` (Cycle 3b's G-Pyth gate work). At minimum, add a code comment at the top of `execute_trigger` documenting the trust assumption on `current_price` so downstream cycles do not silently inherit it.",
+      "Add `assert!(object::id(pool) == vault.pool_id, EWrongPool);` (with a new non-zero error constant such as `EWrongPool: u64 = 1005`) at the top of execute_trigger, before the balance is withdrawn. This makes the keeper-supplied pool argument cryptographically bound to what the user signed at vault creation, restoring the user's intent and removing the pool-substitution attack surface. Add a corresponding unit test that creates the vault with one pool_id and calls execute_trigger with a different pool, expecting the EWrongPool abort."
+    ],
+    "descriptions": [
+      "execute_trigger accepts an arbitrary `&mut Pool<Base, Quote>` from the caller and routes the swap through it without ever comparing `object::id(pool)` against the `vault.pool_id` field stored at creation. Because the trigger is permissionless and `min_quote_out` is hardcoded to `0`, a caller can pin the type parameters `<Base, Quote>` from the vault but still pass any other DeepBook pool of the same type pair (a stale pool, a pool with much worse depth, or one the caller has populated as a sandwich victim). The keeper-supplied `current_price` gate fires solely against the vault's TP/SL thresholds \u2014 it never proves the swap actually executes against the pool the owner selected when creating the vault. Net effect: an adversarial trigger caller can substitute the pool to extract value from the owner via slippage on a thin pool while the TP/SL gate is satisfied by an arbitrary `current_price` value.",
+      "The `current_price` parameter on `execute_trigger` is an arbitrary u64 supplied by whoever calls the function. The condition gate only checks that `current_price` satisfies one of the configured TP/SL thresholds \u2014 it never validates that `current_price` corresponds to any real market state, nor that the swap will produce the price the caller claimed. A permissionless caller can supply ANY `current_price >= tp_price` (or `<= sl_price`) value to trigger the swap, even if the actual market price is far worse. Because `min_quote_out = 0` is hardcoded, the actual swap proceeds at whatever the orderbook delivers \u2014 which may be substantially below the price the keeper attested to. The TP/SL gate is thus a permission gate (does the keeper claim the threshold is met?) rather than an execution-correctness gate (will the swap actually deliver the implied output?).",
+      "Vault<T> persists `pool_id: ID` (line 38) \u2014 the pool the user committed to at create_vault time and the pool emitted in VaultCreated for off-chain indexers. execute_trigger<Base, Quote>(vault: &mut Vault<Base>, pool: &mut Pool<Base, Quote>, ...) accepts an arbitrary `pool` argument and calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` (line 150) without ever asserting `object::id(pool) == vault.pool_id`. Because the trigger is permissionless (no `ctx.sender() == vaul"
+    ],
+    "impacts": [
+      "Owners who configure a vault expecting execution against a specific liquid pool can have their balance routed through a different (potentially adversarial) pool with the same `<Base, Quote>` types. Quote proceeds may be far below what the chosen pool would have produced. The `pool_id` field is stored and emitted in `VaultCreated` but never enforced on trigger fire, making the field cosmetic. AC3.4 does not explicitly require the equality check, so this is a contract-design gap rather than a verbatim AC violation, but the owner-protection intent of binding a vault to a pool at creation time is defeated.",
+      "An adversarial keeper can call `execute_trigger` at any moment after the vault is configured (regardless of the real market price), forcing a swap at the worst available depth. The owner's `Coin<Quote>` proceeds may be far below the implied value of `tp_price * deposit_amount`. This is a known design choice per contract.md ('the vault is gated by the keeper-supplied condition rather than a separate slippage floor in this slot'), but it is worth surfacing because it materially weakens the security properties a naive owner might assume from the TP/SL framing. Cycle 3b (the keeper) is expected to compute `current_price` honestly, but nothing on-chain enforces this.",
+      "Vault<T> persists `pool_id: ID` (line 38) \u2014 the pool the user committed to at create_vault time and the pool emitted in VaultCreated for off-chain indexers. execute_trigger<Base, Quote>(vault: &mut Va"
+    ],
+    "evidence": "Lines 124-150 of sources/tpsl_vault.move:\n```\npublic entry fun execute_trigger<Base, Quote>(\n    vault: &mut Vault<Base>,\n    pool: &mut Pool<Base, Quote>,\n    current_price: u64,\n    deep_in: Coin<DEEP>,\n    clock: &Clock,\n    ctx: &mut TxContext,\n) {\n    assert!(!vault.triggered, EVaultTriggered);\n\n    // Check TP or SL condition.\n    let tp_met = vault.tp_price.is_some() && current_price >= *vault.tp_price.borrow();\n    let sl_met = vault.sl_price.is_some() && current_price <= *vault.sl_price.borrow();\n    assert!(tp_met || sl_met, ETriggerConditionNotMet);\n\n    let vault_id = object::id(vault);\n    let owner = vault.owner;\n\n    // Drain the vault balance into a Coin<Base>.\n    let base_balance = balance::withdraw_all(&mut vault.balance);\n    let base_in = coin::from_balance(base_balance, ctx);\n\n    // Call DeepBook no-manager swap (min_quote_out = 0; condition gate is\n    // the correctness gate per contract decision).\n    let (base_residual, quote_out, deep_residual) =\n        pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx);\n```\nNo `assert!(object::id(pool) == vault.pool_id, ...)` appears anywhere in the function body, and `vault.pool_id` is never read from `execute_trigger`.",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R1-001",
+      "R1-002",
+      "R3-001"
+    ],
+    "manual_override": {
+      "reason": "Iter-1 high finding R3-001/R6-001 (pool_id not validated) was fixed in iter-2 with EWrongPool=1004 assert. Remaining high cluster (price not on-chain verified) is intentional per spec design \u2014 keeper reads on-chain Pyth and supplies current_price; on-chain Pyth integration is out of scope for Slot 3 Move per spec.",
+      "authorized_at": "2026-04-28T00:35:00Z",
+      "review": "cycles/3/review.md verdict: ACCEPTED",
+      "original_severity_span": "max=high, min=low"
+    }
+  },
+  {
+    "cluster_id": "C005",
+    "title": "min_quote_out hardcoded to 0 disables DeepBook's slippage guard, so the keeper-supplied current_price gate is the only correctness check on swap output",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_ranges": [
+      "147-150"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "medium",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Two non-mutually-exclusive options. (1) Add an optional owner-configured `min_quote_out_bps_of_deposit: Option<u64>` field to Vault that, when Some, computes `min_quote_out = (deposit_amount * bps) / 10_000` at execute_trigger time and forwards it to swap_exact_base_for_quote. This gives owners a protocol-level slippage floor independent of the keeper. (2) At minimum, add an `assert!(quote_out_amount > 0, EZeroQuoteOut)` after the swap returns, which catches the degenerate case of a fully empty book \u2014 better than silently accepting a zero-value Coin<Quote> and marking the vault triggered. Either approach should be paired with a test that fires the trigger against a fixture pool with insufficient depth and asserts the abort path."
+    ],
+    "descriptions": [
+      "execute_trigger calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` with `min_quote_out = 0`. DeepBook's pool.move declares `EMinimumQuantityOutNotMet: u64 = 12` precisely to give callers a slippage floor, and a `min_quote_out = 0` setting unconditionally disables that protection. The contract.md does document this as a deliberate decision (`min_quote_out = 0` because the keeper's `current_price` gate is the trigger-side correctness check), but the trigger gate only ve"
+    ],
+    "impacts": [
+      "execute_trigger calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` with `min_quote_out = 0`. DeepBook's pool.move declares `EMinimumQuantityOutNotMet: u64 = 12` precisely t"
+    ],
+    "evidence": "execute_trigger calls `pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx)` with `min_quote_out = 0`. DeepBook's pool.move declares `EMinimumQuantityOutNotMet: u64 = 12` precisely to give callers a slippage floor, and a `min_quote_out = 0` setting unconditionally disables that pro",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-002"
+    ]
+  },
+  {
+    "cluster_id": "C006",
+    "title": "create_vault accepts (None, None) TP/SL configuration silently, producing a vault that can never fire and is only drainable via withdraw",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_ranges": [
+      "68-103"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "medium",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Implement the optional `EInvalidTriggerConfig: u64 = 1004` constant suggested by contract.md and add `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig);` at the top of create_vault, before any object construction. This produces an immediate, actionable abort at the misconfiguration point rather than at fire time. Add a unit test that calls create_vault with (None, None) and asserts the EInvalidTriggerConfig abort. The cycle's contract treats this as implementer's discretion, but from an error-handling-quality standpoint the guarded version is strictly better.",
+      "Two complementary fixes. (1) When BOTH thresholds are Some, add `assert!(*tp_price.borrow() > *sl_price.borrow(), EInvalidThresholdOrdering)` in create_vault to reject the inverted configuration outright. (2) Augment TriggerFired with a `triggered_by: u8` (or an enum) field that records which condition drove the fire (`0 = TP`, `1 = SL`), letting downstream consumers render the event correctly. The first fix is the conservative defense; the second improves diagnostic granularity even when both thresholds are individually sensible."
+    ],
+    "descriptions": [
+      "create_vault<T> takes `tp_price: Option<u64>` and `sl_price: Option<u64>` and constructs the Vault unconditionally \u2014 there is no `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig)` guard. The contract.md explicitly flagged this as 'Optional defense-in-depth (not required for AC compliance)' with an `EInvalidTriggerConfig: u64 = 1004` constant proposed but the implementer chose to omit it. The omission means: a caller who passes `tp_price = none, sl_price = none` succeeds,",
+      "create_vault accepts arbitrary `tp_price: Option<u64>` and `sl_price: Option<u64>` with no relational constraint. A coherent TP/SL configuration has `tp_price > sl_price` (take profit on upside, stop loss on downside). The contract performs no such check, so a user (or a malicious frontend) can create a vault with, e.g., `tp_price = some(1)` and `sl_price = some(10)`. At any keeper-supplied `current_price` in `[1, 10]`, BOTH `tp_met` and `sl_met` evaluate true simultaneously, and the trigger fir"
+    ],
+    "impacts": [
+      "create_vault<T> takes `tp_price: Option<u64>` and `sl_price: Option<u64>` and constructs the Vault unconditionally \u2014 there is no `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfi",
+      "create_vault accepts arbitrary `tp_price: Option<u64>` and `sl_price: Option<u64>` with no relational constraint. A coherent TP/SL configuration has `tp_price > sl_price` (take profit on upside, stop"
+    ],
+    "evidence": "create_vault<T> takes `tp_price: Option<u64>` and `sl_price: Option<u64>` and constructs the Vault unconditionally \u2014 there is no `assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig)` guard. The contract.md explicitly flagged this as 'Optional defense-in-depth (not required for A",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-003",
+      "R3-004"
+    ]
+  },
+  {
+    "cluster_id": "C002",
+    "title": "Source module imports five Sui-framework members that are now provided by the default prelude \u2014 five W02021 'duplicate alias' warnings carry forward into every build",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_ranges": [
+      "10-17",
+      "1-234"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Delete lines 10, 16, 17 entirely; change line 15 to `use sui::object;` only if `Self::` is needed elsewhere in the file (it is not \u2014 `object::id` and `object::new` work via the prelude). Concretely the imports block should reduce to: `use deepbook::pool::{Self, Pool};\\nuse sui::balance::{Self, Balance};\\nuse sui::clock::Clock;\\nuse sui::coin::{Self, Coin};\\nuse sui::event;\\nuse token::deep::DEEP;`. Verify with `sui move build -e localnet` showing zero W02021 warnings on the source module afterwards. Same fix applies to the test module's lines 11 (`use std::option;`) and 15 (`use sui::object;`) per green.log lines 8-22.",
+      "No action. Maintain this granularity if future cycles add new functionality (e.g., a separate `tpsl_vault::events` module is unwarranted unless events grow past a 5-event surface)."
+    ],
+    "descriptions": [
+      "Sui 1.45+ provides implicit prelude aliases for `std::option::Option`, `sui::object::{Self, ID, UID}`, `sui::transfer`, and `sui::tx_context::TxContext`. The source module re-imports all five at the top of the file (lines 10, 15, 16, 17). The compiler emits five W02021 'duplicate alias' warnings on every `sui move build` \u2014 see green.log lines 66-112 for the exact emissions. The doc-first agent's 'Upgrade Outdated Code' rule explicitly calls out 'Explicit framework dependencies in Move.toml (Sui 1.45+ uses implicit)' as a Move 2024 modernisation target, and the same principle applies to prelude imports. The green-phase synthesis-notes.md already acknowledges this as 'unused-alias for sui::transfer and sui::tx_context::TxContext aliases that are now default in Sui 1.69 \u2014 quality nit' but the implementation has not been cleaned up. Removing the five redundant import members would cut the source from 9 imports to 4 (only `deepbook::pool::{Self, Pool}`, `sui::balance::{Self, Balance}`, `sui::clock::Clock`, `sui::coin::{Self, Coin}`, `sui::event`, `token::deep::DEEP` remain) and silence five lint emissions per build.",
+      "Confirmation note: the package contains exactly one source module (`sources/tpsl_vault.move`, ~234 LOC) and one test module (`tests/tpsl_vault_tests.move`, ~489 LOC). For a 3-entry-function module with two events, three error constants, and one shared-object struct, this is the right granularity \u2014 splitting into 'types' / 'logic' / 'errors' / 'events' modules would be over-decomposition. The single-file layout matches the canonical sandbox reference `~/workspace/deepbook-sandbox/sandbox/packages/example_contract/` and Cycle 2's `slippage_swap` package (Cycle 2 R2-007 made the same observation). Section headers (`// === Error codes ===`, `// === Structs ===`, `// === Events ===`, `// === Entry functions ===`, `// === Read accessors ===`) follow the Sui convention and visually delimit the file. The module-name pair `tpsl_vault::tpsl_vault` (package::module) follows the recommended convention noted in contract.md."
+    ],
+    "impacts": [
+      "Persistent build-time warning noise (five emissions per build). Consumers running `move-code-quality` will see the lint count and may treat it as a contract-vs-implementation discrepancy. Future maintainers will copy the redundant imports forward into new modules. AC3.6's 'Move 2024 quality pass reports no issues' verification is technically softened \u2014 the warnings are not errors but they are findings in the strict reading.",
+      "None \u2014 confirms package structure is appropriately minimal."
+    ],
+    "evidence": "use std::option::Option;\nuse sui::balance::{Self, Balance};\nuse sui::clock::Clock;\nuse sui::coin::{Self, Coin};\nuse sui::event;\nuse sui::object::{Self, ID, UID};\nuse sui::transfer;\nuse sui::tx_context::TxContext;\n\n// (5x W02021 emitted: Option, Self/object, ID, UID, transfer, TxContext)",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-001",
+      "R2-010"
+    ]
+  },
+  {
+    "cluster_id": "C003",
+    "title": "Source uses module-qualified function-call form (`pool::swap_exact_base_for_quote(pool, ...)`, `coin::value(&c)`, `balance::withdraw_all(&mut b)`) instead of Move 2024 dot-method-call idiom \u2014 same finding as Cycle 2 R2-003 carried forward",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_ranges": [
+      "76-179",
+      "187-234",
+      "175-234",
+      "67-125",
+      "67-234"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Refactor in one pass: (a) drop `Self` from the three imports; (b) migrate the eleven call-sites to dot-syntax per the mapping above (skip `coin::from_balance` and `object::new` which are constructors not receivers). Re-run `sui move test -e localnet` to confirm 7/7 PASS preserved. Single-commit refactor; mechanically guaranteed safe because dot-syntax is sugar for the qualified form when the receiver type matches.",
+      "Either: (a) add the two missing accessors `pub fun trigger_fired_base_residual_amount(evt: &TriggerFired): u64 { evt.base_residual_amount }` and the matching `_deep_residual_amount` to make the surface symmetric (preferred \u2014 it costs ~6 LOC and makes the API uniform); or (b) move ALL 11 accessors behind `#[test_only]` since downstream consumers in Cycles 3b/3c read events off-chain via SuiClient (where Move accessors are irrelevant) \u2014 this would correctly express that the accessors exist for in-tree test convenience only. Pick (a) if the keeper / UI need a uniform on-chain read API; pick (b) if event consumption is exclusively off-chain. The code as written commits to neither.",
+      "Move the 11 event accessors and the 2 vault accessors into a `#[test_only]` block at the bottom of the module, OR put them in a sibling `#[test_only] module tpsl_vault::tpsl_vault_test_helpers;` so test code stays clean while production surface stays minimal. The test module already imports the events (`use tpsl_vault::tpsl_vault::{Self, Vault, VaultCreated, TriggerFired};` line 19) so direct field access via the `Self` package qualifier (`evt.vault_id` works inside any module of the package) is available without changing tests at all \u2014 a simpler refactor would be to delete all 13 accessors and rewrite the 17 test call-sites to use direct field access. Either is correct; deleting is the smallest diff if the keeper / UI consume events strictly off-chain.",
+      "Add a one-line comment immediately above each `#[allow(lint(public_entry))]`, citing the specific AC. E.g., for line 67: `// AC3.2 mandates the verbatim word 'entry function'; W99010 suppressed per Contract decision #1.` Repeat for lines 108 (cite AC3.3) and 124 (cite AC3.4). This makes the spec-compliance rationale durable in-tree.",
+      "No action for the entry/event surface. Apply R2-003 and R2-004 fixes for the accessor surface."
+    ],
+    "descriptions": [
+      "Eleven call-sites in this module use the legacy module-qualified function-call form when their first parameter is the receiver, for which Move 2024 supports dot-method-call syntax. Concrete sites: line 76 `coin::value(&coin)` \u2192 `coin.value()`; line 80 `object::new(ctx)` (no receiver \u2014 keep as-is); line 82 `coin::into_balance(coin)` \u2192 `coin.into_balance()`; line 90 `object::id(&vault)` \u2192 `vault.id()` (works because `Vault<T>` has `key`, framework derives `id` accessor) \u2014 but Sui's `object::id` is the canonical helper; both forms are accepted; line 113 `balance::withdraw_all(&mut vault.balance)` \u2192 `vault.balance.withdraw_all()`; line 114 `coin::from_balance(balance, ctx)` \u2192 `balance.from_balance(ctx)` is NOT idiomatic (the receiver is the wrapping target not `Balance`); line 140 `object::id(vault)` \u2192 `vault.id()` per above; line 144 same as 113; line 145 same as 114; lines 152-154 `coin::value(&...)` \u2192 `<coin>.value()`; line 150 `pool::swap_exact_base_for_quote(pool, ...)` \u2192 `pool.swap_exact_base_for_quote(...)` (DeepBook's signature is `self: &mut Pool`, dot-syntax is supported and the upstream code itself uses it); line 179 `balance::value(&vault.balance)` \u2192 `vault.balance.value()`. The doc-first agent rules call this out as a Move 2024 upgrade target ('Old function-style calls (`vector::push_back(&mut v, x)` \u2192 `v.push_back(x)`)'). Cycle 2 R2-003 raised the identical pattern against `slippage_swap.move` and the cycle 3 implementation has not picked up the carry-forward fix. Migrating these sites also lets the imports block drop the `Self` member from `use sui::balance::{Self, Balance}` \u2192 `use sui::balance::Balance`, `use sui::coin::{Self, Coin}` \u2192 `use sui::coin::Coin`, and `use deepbook::pool::{Self, Pool}` \u2192 `use deepbook::pool::Pool` (the only `Self::` use is `pool::swap_exact_base_for_quote` on line 150).",
+      "The module exposes 11 read-accessor functions for the two events: 7 for `VaultCreated` (vault_id, owner, pool_id, side, tp_price, sl_price, deposit_amount \u2014 covers all 7 fields) and 4 for `TriggerFired` (vault_id, owner, current_price, quote_out_amount \u2014 covers 4 of 6 fields). The two missing `TriggerFired` accessors are `trigger_fired_base_residual_amount` and `trigger_fired_deep_residual_amount`. This asymmetry is a design defect: either the accessor surface is the public-API contract for downstream consumers (Cycle 3b keeper, Cycle 3c UI, off-chain indexers \u2014 all of which read events out-of-band) and should be complete, or it is purely a test convenience and should be `#[test_only]` (which would let the implementer drop the public surface entirely and still let tests inspect fields via the `Self` import). The current state \u2014 public, partial \u2014 is the worst of both worlds: downstream consumers cannot read residual amounts via the canonical accessor pattern, and the public surface advertises an obligation that is not honoured uniformly. Note: the test suite currently does not assert on residual amounts (T-004/T-005 `take_from_sender<Coin<SUI>>` and `take_from_sender<Coin<DEEP>>` without value assertions, lines 268-272 and 365-369), so the missing accessors are not test-blocking \u2014 but if E-007's Cycle 3b stub\u2192real promotion or the keeper-side reconciliation logic in Cycle 3b needs to read `base_residual_amount` from a `TriggerFired` for skim-detection logic, the accessor will be needed.",
+      "Lines 175-234 declare 13 public functions (`balance_value`, `is_triggered`, plus 11 event accessors) whose only consumers in this cycle are the in-tree `tests/tpsl_vault_tests.move` file. The events `VaultCreated` and `TriggerFired` have abilities `copy, drop, store` (lines 45 and 55), which means any code in the package \u2014 including `#[test_only]` modules \u2014 can read fields directly via the `evt.field_name` form without needing public accessors. The public-accessor pattern is necessary only when (a) consumers are external Move modules outside the package (none in this slot) or (b) the event needs to abstract internal representation. Neither applies here. Exposing them unconditionally inflates the package's public API surface from 3 entries (`create_vault`, `withdraw`, `execute_trigger`) to 16 entries, of which 13 are pure-projection getters that cannot be removed in a future upgrade without breaking compatibility. The Move Book's `book/guides/upgradeability-practices.md` warns against exposing more public surface than is contractually obligated. Note this is largely cosmetic given Cycle 3b/3c consume events via SuiClient.queryEvents (off-chain RPC, no Move accessor involved) \u2014 but the public API obligation is real once the package is published.",
+      "Per contract.md 'Contract decisions' #1 and AC3.6 NOTE 2, the spec mandates the literal word 'entry function', so `public entry fun` is used for `create_vault`, `withdraw`, and `execute_trigger`. The W99010 lint is suppressed correctly via `#[allow(lint(public_entry))]` on each function (lines 67, 108, 124). This is the same finding as Cycle 2 R2-001, correctly carried forward and applied. However, the in-tree `#[allow]` attributes carry no comment explaining why the suppression is required. Cycle 2 R2-001's recommendation was: 'Add `#[allow(lint(public_entry))]` immediately above the `public entry fun` declaration, with a one-line comment: `// AC3.2/3.3/3.4 mandate `public entry`; suppress W99010 for spec-compliance.`' The current implementation has the suppression but not the documenting comment. A future maintainer running `move-code-quality` and seeing the `#[allow]` will not know it traces back to AC3.2/3.3/3.4 + Contract decisions #1 \u2014 they may delete the suppression assuming it was a temporary measure.",
+      "Confirmation note for the entry-function surface: the module declares exactly three public entry functions (`create_vault`, `withdraw`, `execute_trigger`) \u2014 matching contract.md's 'In scope' section verbatim and AC3.2/3.3/3.4 individually. No accidental public helpers, no accidentally public state mutators outside the entry-fun set, no leaked internal-only functions. Both events `VaultCreated` and `TriggerFired` are declared `public struct ... has copy, drop, store` matching contract.md's exact field shape. The `BalanceManager` invariant (Decision Gate G-Vault: 'No `BalanceManager` is constructed or referenced anywhere in this package') is honoured \u2014 no `deepbook::balance_manager` import anywhere in `sources/`. The `swap_exact_base_for_quote_with_manager` invariant is also honoured \u2014 only the no-manager path is called. The accessor inflation issue is tracked separately (R2-003, R2-004). The entry-function-and-events surface itself is correctly minimal."
+    ],
+    "impacts": [
+      "Style drift from Move 2024 idioms; carries forward three unnecessary `Self` imports; each pattern repetition makes future maintainers copy the legacy form into new modules. Cycle 2 R2-003 was raised but not formally accepted/rejected \u2014 Cycle 3 inherits the same finding. Not a correctness issue.",
+      "Inconsistent public surface advertises an incomplete event-read API. Downstream consumers (keeper / UI / indexer) reading `TriggerFired` via the accessor pattern have to fall back to module-internal field access (which `copy, drop, store` already permits but is non-idiomatic) or call BCS-decode on the raw event bytes. Future maintainers will not know whether the omission was intentional. Asymmetric surface fails the Move-Book code-quality checklist's 'public surface \u2014 only what's needed, all of what's documented' test.",
+      "Inflates the package's permanent public API by 13 entries. Future package upgrades must preserve all 13 signatures or risk breaking external consumers (none today, but the accessors are public). Future maintainers will not know which accessors are 'load-bearing for the keeper' vs 'test-only conveniences'. Cycle 3b's keeper consumes `TriggerFired` via SuiClient subscribeEvent / queryEvents (off-chain JSON), where the public Move accessor is irrelevant.",
+      "Without the documenting comment, the suppression is a bare `#[allow]` that future maintainers may strip on the assumption it was a temporary lint-shut-up. If they then 'fix' the lint by removing `entry`, AC3.2/3.3/3.4's verbatim 'entry function' verification breaks. The in-tree comment is the only durable mechanism that keeps the contract decision discoverable to readers without the cycle artifacts handy.",
+      "None \u2014 confirms the entry-function and event surface complies with the contract verbatim."
+    ],
+    "evidence": "let deposit_amount = coin::value(&coin);\n...\n    balance: coin::into_balance(coin),\n...\n    let vault_id = object::id(&vault);\n...\n    let balance = balance::withdraw_all(&mut vault.balance);\n    let coin = coin::from_balance(balance, ctx);\n...\n    let (base_residual, quote_out, deep_residual) =\n        pool::swap_exact_base_for_quote(pool, base_in, deep_in, 0, clock, ctx);\n    let quote_out_amount = coin::value(&quote_out);\n...\n    balance::value(&vault.balance)",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-002",
+      "R2-003",
+      "R2-004",
+      "R2-005",
+      "R2-009"
+    ]
+  },
+  {
+    "cluster_id": "C004",
+    "title": "`side: u8` is stored-and-emitted opaque metadata per Contract decision #2 \u2014 the design correctly resists assigning semantic meaning, but no in-tree comment near the field documents this",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_ranges": [
+      "31-41",
+      "40-40",
+      "39-39"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "low",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "No action.",
+      "No action for this cycle. If Cycle 4 or beyond adds a third lifecycle state, refactor at that point \u2014 Move 2024 enums are upgrade-safe additive. For Cycle 3 the bool is the right minimal expression.",
+      "Add a one-line doc-comment immediately above line 39: `/// Opaque metadata; semantics defined by off-chain consumers (keeper/UI). The Move package does not validate or branch on this value (Contract decision #2).` This pins the design intent in-tree."
+    ],
+    "descriptions": [
+      "Confirmation note: the `Vault<phantom T>` declaration (line 32) correctly applies the `phantom` keyword. `T` parameterises only the wrapped `Balance<T>` field \u2014 it never appears in another field nor is it stored as a value type \u2014 so `phantom` is the correct ability-marker (per Move Book `book/move-basics/generics.md` 'Phantom Type Parameters': 'When a type parameter does not appear inside a non-phantom-marked struct field, it should be marked phantom'). Without `phantom`, a `Vault<NonStoreType>` would be unconstructible because `T` would propagate ability requirements through every field. The ability set `has key` (no `store`) is correct: the vault is meant to live as a shared object only (line 102 `transfer::share_object(vault)`) and never to be wrapped as an inner field of another struct. Field order \u2014 `id`, `owner`, `balance`, `tp_price`, `sl_price`, `pool_id`, `side`, `triggered` \u2014 matches contract.md AC3.1's enumerated field list and follows the conventional 'identity \u2192 ownership \u2192 custody \u2192 policy \u2192 metadata \u2192 lifecycle' top-down ordering. No design defect.",
+      "Confirmation note with optional alternative: `triggered: bool` (line 40) represents the vault's binary lifecycle (Active \u2192 Triggered, one-way). This is correct, minimal, and matches contract.md AC3.1's 'triggered lifecycle flag' wording verbatim. An alternative Move 2024 idiom would be a `public enum Lifecycle has copy, drop, store { Active, Triggered }` field which (a) makes the state-machine self-documenting via the type name, (b) lets future cycles add states like `Cancelled` or `Expired` without breaking on-chain compatibility (enums in Move 2024 support additive variant extension on package upgrade per `book/move-basics/enum-and-match.md`), and (c) lets `execute_trigger` and `withdraw` use exhaustive `match` instead of negation-on-bool guards. The bool form is fine for this slot \u2014 it's one bit, fits the spec verbatim, and the state machine is provably one-way. The enum form is a 'nice to have' that becomes valuable if Cycle 4+ ever needs a third lifecycle state. No action required for AC3.1 compliance.",
+      "Per contract.md 'Contract decisions' #2, `side: u8` is stored-and-emitted opaque metadata only \u2014 `execute_trigger` does not branch on it and the Move package does not assign semantic meaning to specific `u8` values. The implementation correctly honours this: `side` is written by `create_vault` (line 86), included in `VaultCreated` (line 96), and never read again in `execute_trigger`. Correct. However, the field declaration on line 39 carries no comment explaining the opaque-metadata semantics. A future maintainer reading the source without the contract handy will see `side: u8` and may assume it has semantic meaning (e.g., 'long' vs 'short') and add validation logic (e.g., `assert!(side <= 1, EInvalidSide)`) which would silently break the keeper / UI in Cycle 3b/3c if they encode side differently. The test module pins `SIDE_LONG = 0` (line 43) but that's a test convention, not a contract-side validation. A 1-line doc-comment above the field declaration would prevent the misinterpretation."
+    ],
+    "impacts": [
+      "None \u2014 confirms correct application of Move 2024 generics + ability conventions.",
+      "None for AC3.1 compliance. Future-proofing only \u2014 if a third state is added later (e.g., 'cancelled by owner before trigger'), the bool form requires schema migration; the enum form is additive.",
+      "Risk that a future maintainer adds a `side` validator (e.g., `assert!(side <= 1)`) believing it's semantic, which would break the contract decision #2 invariant ('does not validate its domain'). The keeper / UI in Cycles 3b/3c are free to encode `side` however they like \u2014 adding a Move-side validator would silently constrain that."
+    ],
+    "evidence": "/// Shared object that custodies a Balance<T> under owner-defined TP/SL prices.\npublic struct Vault<phantom T> has key {\n    id: UID,\n    owner: address,\n    balance: Balance<T>,\n    tp_price: Option<u64>,\n    sl_price: Option<u64>,\n    pool_id: ID,\n    side: u8,\n    triggered: bool,\n}",
+    "confidence_spread": [
+      "high",
+      "medium"
+    ],
+    "source_ids": [
+      "R2-007",
+      "R2-008",
+      "R2-011"
+    ]
+  },
+  {
+    "cluster_id": "C007",
+    "title": "Error constants do not use Move 2024 #[error] attribute, foregoing improved CLI/explorer abort diagnostics",
+    "file": "independent/03-tpsl-vault/move/sources/tpsl_vault.move",
+    "line_ranges": [
+      "22-27"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      3
+    ],
+    "max_severity": "low",
+    "min_severity": "low",
+    "disputed_severity": false,
+    "categories": [
+      "error-handling"
+    ],
+    "recommendations": [
+      "Migrate the three error constants to the Move 2024 `#[error]` attribute form, e.g.: `#[error] const ENotOwner: vector<u8> = b\"Caller is not the vault owner\";`. This composes cleanly with the existing `expected_failure(abort_code = ::tpsl_vault::tpsl_vault::ENotOwner)` test annotations (the abort_code identifier path is unchanged) while giving the keeper, the UI, and any CLI consumer a free human-readable diagnostic. Verify after the change that `sui move test -e localnet` still reports 7/7 PASS \u2014 the test annotations should not need updating."
+    ],
+    "descriptions": [
+      "The three named error codes are declared as bare `const ENotOwner: u64 = 1001;`, `const EVaultTriggered: u64 = 1002;`, `const ETriggerConditionNotMet: u64 = 1003;`. Move 2024 supports clever-error attributes per `.move-book-docs/reference/abort-and-assert/clever-errors.md` and `.move-book-docs/book/guides/better-error-handling.md`: declaring a constant as `#[error] const ENotOwner: vector<u8> = b\"Caller is not the vault owner\";` lets the runtime surface the human-readable message in CLI output,"
+    ],
+    "impacts": [
+      "The three named error codes are declared as bare `const ENotOwner: u64 = 1001;`, `const EVaultTriggered: u64 = 1002;`, `const ETriggerConditionNotMet: u64 = 1003;`. Move 2024 supports clever-error att"
+    ],
+    "evidence": "The three named error codes are declared as bare `const ENotOwner: u64 = 1001;`, `const EVaultTriggered: u64 = 1002;`, `const ETriggerConditionNotMet: u64 = 1003;`. Move 2024 supports clever-error attributes per `.move-book-docs/reference/abort-and-assert/clever-errors.md` and `.move-book-docs/book/",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R3-005"
+    ]
+  },
+  {
+    "cluster_id": "C008",
+    "title": "Move.toml drops `deepbook_margin` with an inline comment \u2014 same Cycle-2 deviation correctly carried forward; comment could cite the friction-log entry by line for traceability",
+    "file": "independent/03-tpsl-vault/move/Move.toml",
+    "line_ranges": [
+      "5-14"
+    ],
+    "agreement_count": 1,
+    "reviewers": [
+      2
+    ],
+    "max_severity": "info",
+    "min_severity": "info",
+    "disputed_severity": false,
+    "categories": [
+      "design"
+    ],
+    "recommendations": [
+      "Optional: append `# (carry-forward of Cycle 2 R2-002 / R3-001; check independent/raw-friction.log [deepbook] before re-adding)` to the comment block. Single-line change; no functional impact."
+    ],
+    "descriptions": [
+      "The Move.toml correctly carries forward Cycle 2's `deepbook_margin` exclusion with an inline 4-line comment (lines 9-13) explaining the bundled `deepbook_margin/tests/helper/test_helpers.move` references the missing `pyth::price_info::new_price_info_object_for_test` symbol. This matches contract.md's 'In scope' Move.toml expectations and the Cycle 2 R2-002 carry-forward. The comment is well-written and self-documenting. Minor improvement: per Cycle 2 R2-002 recommendation, the comment could cite the friction-log entry by line and date (e.g., `# carry-forward of Cycle 2 R2-002; see independent/raw-friction.log [deepbook] entry`) so a future maintainer running `git blame` on the Move.toml can trace the deviation back to the originating cycle artifact without having to grep the .forge/ directory. Not a defect \u2014 informational confirmation that the design choice is correct."
+    ],
+    "impacts": [
+      "None for correctness. The omission is fully documented inline. Minor traceability gap if a future cycle re-evaluates whether `deepbook_margin` can be re-added (which would require checking whether the upstream pyth helper has been added \u2014 that check is easier when the comment cites the friction-log line)."
+    ],
+    "evidence": "# Deepbook dependencies\ntoken = { local = \"/Users/alilloig/workspace/deepbook-sandbox/sandbox/.external-packages/token\" }\ndeepbook = { local = \"/Users/alilloig/workspace/deepbook-sandbox/sandbox/.external-packages/deepbook\" }\n# deepbook_margin excluded: its bundled test sources reference\n# pyth::price_info::new_price_info_object_for_test which does not exist in\n# the bundled pyth package, causing a build-time unbound-member error.\n# This vault module does not use deepbook_margin at all (carry-forward of\n# Cycle 2 R2-002).",
+    "confidence_spread": [
+      "high"
+    ],
+    "source_ids": [
+      "R2-006"
+    ]
+  }
+]

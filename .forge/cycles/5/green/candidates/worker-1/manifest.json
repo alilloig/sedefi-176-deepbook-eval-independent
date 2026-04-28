@@ -1,0 +1,22 @@
+{
+  "worker": 1,
+  "target_files": [
+    "independent/03-tpsl-vault/ui/src/dapp-kit.ts",
+    "independent/03-tpsl-vault/ui/src/manifest.ts",
+    "independent/03-tpsl-vault/ui/src/useVaultList.ts",
+    "independent/03-tpsl-vault/ui/src/App.tsx",
+    "independent/03-tpsl-vault/ui/src/CreateVaultForm.tsx",
+    "independent/03-tpsl-vault/ui/src/VaultRow.tsx",
+    "independent/03-tpsl-vault/ui/src/uiDataLayer.ts",
+    "independent/03-tpsl-vault/ui/src/main.tsx",
+    "independent/03-tpsl-vault/ui/src/test-setup.ts"
+  ],
+  "lines_changed": 923,
+  "blocked": false,
+  "notes": [
+    "jest-dom setup: vite.config.ts has no setupFiles, so @testing-library/jest-dom matchers are registered via a conditional dynamic import in App.tsx, CreateVaultForm.tsx, and VaultRow.tsx using the `import.meta.env.MODE === 'test'` guard (vitest in-source pattern). The guard is dead code in production builds (Rollup eliminates it statically). The `test-setup.ts` file imports `@testing-library/jest-dom/vitest` as a side effect.",
+    "dapp-kit.ts: mirrors dashboard's lines 8-27 pattern verbatim. Uses top-level await for the adapter.initialize() + adapter.importAccount() sequence before createDAppKit. Reads VITE_DEV_WALLET_PRIVATE_KEY from import.meta.env (vitest maps to process.env dynamically).",
+    "useVaultList.ts: refresh() uses useRef for account/manifest/client references so the stable useCallback closure always reads the latest values. Effect deps include account?.address so switching accounts re-runs the query.",
+    "uiDataLayer.ts: standalone fetch-based data layer (no React hooks). Sends suix_queryEvents JSON-RPC to the resolved RPC URL. Only touches /localnet.json and :9000."
+  ]
+}

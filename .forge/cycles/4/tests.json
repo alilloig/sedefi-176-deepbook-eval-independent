@@ -1,0 +1,83 @@
+[
+  {
+    "id": "T-001",
+    "name": "vault registry parses VaultCreated event payload into a typed KnownVault record",
+    "behavior": "Given a captured suix_queryEvents payload for a tpsl_vault::VaultCreated event (parsedJson with vault_id, owner, pool_id, side, tp_price as Option<u64> {Some: \"123\"} / None, sl_price, deposit_amount as decimal-string u64), the registry's parseVaultCreatedEvent helper returns a KnownVault whose fields exactly match the source: vault_id and pool_id are normalized 0x-prefixed lowercase hex; owner is a 0x-prefixed address; side is a number 0|1; tp_price and sl_price are bigint | null (Some unwrapped to bigint, None becomes null); deposit_amount is bigint. The function must NOT silently coerce or drop fields — a payload missing any of the seven required fields throws a descriptive error naming the missing key.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/vaultRegistry.test.ts",
+    "covers_contract_requirement": "AC3.8"
+  },
+  {
+    "id": "T-002",
+    "name": "vault registry adds, dedupes, and re-seeds triggered flag from on-chain state",
+    "behavior": "A VaultRegistry instance: (1) addOrUpdate(vault) inserts a new vault and returns wasNew=true; a second addOrUpdate with the same vault_id returns wasNew=false and does not duplicate the entry (size stays 1). (2) iterate() returns all known vaults regardless of triggered flag. (3) seedTriggeredFromChain(vaultId, getObject) issues a single getObject call (mocked spy) and sets the in-memory triggered flag from the returned content.fields.triggered boolean; if getObject returns the object missing or with a non-boolean triggered field, the function logs a warning and leaves the in-memory flag unchanged (defaults to false). (4) markTriggered(vaultId) sets triggered=true; isTriggered(vaultId) reflects it. The registry holds no I/O dependencies of its own — getObject is injected.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/vaultRegistry.test.ts",
+    "covers_contract_requirement": "AC3.8"
+  },
+  {
+    "id": "T-003",
+    "name": "pythReader BCS decoder extracts magnitude, exponent, conf, publishTimeSeconds with correct sign handling",
+    "behavior": "Given a fixed 34-byte fixture mirroring the Pyth Price BCS layout documented in notes/pyth-shape.md (price.negative: 1 byte, price.magnitude: 8 bytes u64 LE, conf: 8 bytes u64 LE, expo.negative: 1 byte, expo.magnitude: 8 bytes u64 LE, timestamp: 8 bytes u64 LE), parsePriceFromBcs returns { magnitude, exponent, conf, publishTimeSeconds } as bigints with: (a) positive price (negative byte = 0) preserved; (b) NEGATIVE expo correctly returned as a NEGATIVE bigint when expo.negative byte = 1 (this is the critical Pyth quirk — exponents are typically negative, e.g. -8); (c) conf and publishTimeSeconds parsed as plain u64 LE; (d) a price.negative=1 fixture causes the decoder to throw 'Negative price from oracle' (matches the sandbox market-maker reference). At least three fixtures: a DEEP/USD-shape positive-price + negative-expo case, a SUI/USD-shape case, and a negative-price abort case.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/pythReader.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/pythReader.test.ts",
+    "covers_contract_requirement": "AC3.9"
+  },
+  {
+    "id": "T-004",
+    "name": "trigger evaluator returns tp / sl / none / already_triggered matching Move contract logic exactly",
+    "behavior": "evaluateTrigger(vault, currentPrice) returns { shouldFire, reason } where reason ∈ 'tp' | 'sl' | 'none' | 'already_triggered'. Cases asserted: (1) vault.triggered=true → { shouldFire: false, reason: 'already_triggered' } regardless of price. (2) tp_price=100n, sl_price=null, currentPrice=99n → 'none'; currentPrice=100n → 'tp' (>= boundary inclusive, mirrors Move's `current_price >= tp_price`); currentPrice=101n → 'tp'. (3) tp_price=null, sl_price=50n, currentPrice=51n → 'none'; currentPrice=50n → 'sl' (<= boundary inclusive); currentPrice=49n → 'sl'. (4) Both prices set, currentPrice satisfies BOTH (tp=100, sl=200, current=150 — degenerate but possible if the owner sets crossed bounds): the evaluator returns 'tp' (Move evaluates tp_met first in `tp_met || sl_met`; the fixture documents this ordering). (5) Both prices null → 'none' (no condition can fire). The function is pure: it accepts a plain object and a bigint, returns a plain object, has no I/O, no logger, no SDK imports.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/triggerEvaluator.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/triggerEvaluator.test.ts",
+    "covers_contract_requirement": "AC3.10"
+  },
+  {
+    "id": "T-005",
+    "name": "priceModel calculateBaseQuotePrice mirrors the sandbox market-maker formula and returns a u64-fitting bigint",
+    "behavior": "calculateBaseQuotePrice({ baseMagnitude, baseExponent, quoteMagnitude, quoteExponent, quoteDecimals }) returns a bigint computed exactly as `(baseMagnitude * 10n^(quoteDecimals + baseExponent - quoteExponent)) / quoteMagnitude`. Asserted cases: (1) DEEP/SUI-shape: baseMagnitude=2_500_000n (DEEP $0.025), baseExponent=-8n, quoteMagnitude=350_000_000n (SUI $3.50), quoteExponent=-8n, quoteDecimals=9 (SUI has 9 decimals) → returns the integer-divided bigint result; the test pins the exact expected value computed from the formula. (2) Symmetric SUI/USDC-shape with quoteDecimals=6 (USDC). (3) When the result exceeds 2^64-1 the function throws a 'price overflow u64' error (the Move contract takes current_price as u64). (4) The function is pure (no SDK / no fetch / no I/O); if either magnitude is 0n it throws a 'zero magnitude' error rather than returning 0 silently (zero-magnitude is a Pyth read failure, not a real price).",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/priceModel.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/priceModel.test.ts",
+    "covers_contract_requirement": "AC3.10"
+  },
+  {
+    "id": "T-006",
+    "name": "triggerSubmitter builds an execute_trigger PTB with the correct moveCall target, type args, and argument shape",
+    "behavior": "buildTriggerTransaction({ tpslVaultPackageId, vault, poolId, currentPrice, deepCoinId, deepPerTrigger }) returns a @mysten/sui Transaction whose JSON-serialized form contains exactly one moveCall command with: (a) target = `${tpslVaultPackageId}::tpsl_vault::execute_trigger`; (b) typeArguments = [vault.baseCoinType, vault.quoteCoinType] (resolved upstream from the manifest, passed in via the vault record — the test asserts those tags appear, in order); (c) arguments referencing five inputs in order: tx.object(vault.vault_id), tx.object(poolId), tx.pure.u64(currentPrice), a SplitCoins result on tx.object(deepCoinId) with [tx.pure.u64(deepPerTrigger)], and tx.object('0x6'). The test serializes the transaction (via Transaction.serialize() or a comparable SDK 2.x getData/toJSON path) and asserts on the structural shape — NOT on internal SDK encoding bytes. No real RPC call is made; the function builds the tx only. signAndSubmit is a separate function and out of scope for this test.",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/triggerSubmitter.test.ts",
+    "covers_contract_requirement": "AC3.10"
+  },
+  {
+    "id": "T-007",
+    "name": "logger emits one valid newline-terminated JSON object per call carrying the AC3.11 minimum field set",
+    "behavior": "The logger's emit functions (logKeeperStarted, logVaultDiscovered, logPollCycle, logTriggerAttempt, logTriggerFired, logTriggerFailed, logPythReadFailed, logKeeperShutdown — exact API surface at the implementer's discretion, but each AC3.11 event name must be reachable) write exactly one stdout line per call. Each line: (1) JSON.parses cleanly into an object (single object, terminated by '\\n' — captured via a stdout-write spy); (2) carries the five baseline keys ts (ISO-8601 UTC string matching /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/), level ('info'|'warn'|'error'), event (matching the called function's event name, e.g. 'poll_cycle'); (3) carries the event-specific required fields per AC3.11 (e.g. trigger_fired requires vault_id, current_price, tx_digest, quote_out_amount, base_residual_amount, deep_residual_amount); (4) the logger NEVER serializes a field named 'secretKey' / 'privateKey' / 'seed' even if such a key is in the input record — adversarial input { event: 'keeper_started', keeper_address: '0x...', secretKey: 'leaked' } produces a line whose JSON.parsed object lacks 'secretKey' (defense-in-depth against the spec's 'never logged in full' rule for the ephemeral keypair).",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/logger.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/logger.test.ts",
+    "covers_contract_requirement": "AC3.11"
+  },
+  {
+    "id": "T-008",
+    "name": "config rejects KEEPER_POLL_INTERVAL_MS values outside the closed [5000, 10000] range with an actionable error",
+    "behavior": "loadConfig(env) where env is a plain Record<string, string | undefined> returns a Config with pollIntervalMs as a number when the env var is unset (defaults inside [5000, 10000] per AC3.9 — pin the default to 5000 in the test) or set to '5000' / '7500' / '10000' (boundary inclusive). For env values '4999', '10001', '0', '-1', 'abc', the function THROWS an Error whose message names KEEPER_POLL_INTERVAL_MS and the [5000, 10000] range. The function also requires TPSL_VAULT_PACKAGE_ID to be a non-empty 0x-prefixed hex string of length 66; missing or malformed throws an actionable error naming the env var. KEEPER_DEEP_COIN_ID has the same shape requirement when present; absence triggers a halt-boot error per spec ('the keeper consumes that coin id via KEEPER_DEEP_COIN_ID env var'). The function is pure (env passed in, no process.env reads inside).",
+    "kind": "unit",
+    "target_file": "independent/03-tpsl-vault/keeper/src/config.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/config.test.ts",
+    "covers_contract_requirement": "AC3.9"
+  },
+  {
+    "id": "T-009",
+    "name": "keeper outbound HTTP only targets Sui RPC at the manifest's rpcUrl and Sui faucet, never a DeepBook indexer",
+    "behavior": "Mirroring Cycle 1's T-014 network-shape lockdown pattern. With global fetch spied via vi.fn returning canned JSON-RPC responses for sui_getObject / suix_queryEvents / sui_devInspectTransactionBlock / sui_executeTransactionBlock, when the keeper's vault-discovery + price-poll loop is driven for a single tick (a startKeeperOnce or runOnePollCycle test seam — the implementer exposes a non-loop variant for testability), every captured fetch URL: (a) targets the configured rpcUrl host (127.0.0.1:9000 or localhost:9000) OR the configured faucetUrl host; (b) NEVER contains the forbidden Cycle 1 indexer fragments ':9008/get_pools', ':9008/orderbook/', ':9008/trades/', ':9008/ticker'. Per the contract's 'no @mysten/deepbook-v3 dependency' rule, the keeper has no DeepBook helper SDK pulling in indexer routes. The test asserts at least one outbound POST happened (no zero-call green-pass) — ruling out the Cycle 1 'structural fix that doesn't actually wire through' regression class.",
+    "kind": "integration",
+    "target_file": "independent/03-tpsl-vault/keeper/src/index.ts",
+    "test_file": "independent/03-tpsl-vault/keeper/tests/networkShape.test.ts",
+    "covers_contract_requirement": "AC3.7"
+  }
+]

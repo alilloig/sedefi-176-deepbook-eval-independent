@@ -1,0 +1,42 @@
+[
+  {
+    "id": "R4-001",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "Test fixture setup duplicated verbatim across all four tests",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:38-75,82-109,126-158,164-213",
+    "summary": "T-001, T-002, T-004, and T-005 each repeat the same nine-line fixture block: begin(OWNER) -> setup_everything<SUI,USDC,SUI,DEEP> -> next_tx(TRADER) -> take_shared_by_id<Pool<SUI,USDC>> -> take_shared<Clock> -> mint base -> mint deep -> call wrapper -> return_shared(pool)/return_shared(clock). Only the min_out argument and the post-call assertions vary. A single #[test_only] fun perform_swap(test: &mut Scenario, min_out: u64) (or returning the pool_id for the few callers that need a second next_tx) would collapse roughly 60 LOC of pure boilerplate and make the per-test intent (success at floor, abort above floor, zero floor, side-effect surface) the only thing visible. Per the simplicity lens, this is exactly the duplication a #[test_only] helper is meant to absorb."
+  },
+  {
+    "id": "R4-002",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "Three implementation comments paraphrase the next line of code",
+    "location": "independent/02-slippage-swap/sources/slippage_swap.move:41-42,46,49",
+    "summary": "Line 41-42 (`// Pass min_quote_out = 0 to DeepBook so its internal check never fires; we apply our own assertion below.`) carries genuine design intent and is worth keeping. Line 46 (`// Enforce the caller's slippage floor.`) and line 49 (`// Route all three coins back to the sender — no balance manager created.`) restate what the immediately following `assert!(coin::value(&quote_out) >= min_out, EInsufficientOutput);` and three `transfer::public_transfer` calls already say in code. The function-level doc-comment at lines 22-32 already enumerates these same four steps, so the inline restatements are redundant. Drop them; keep only the line-41-42 comment whose content is not derivable from reading the line below."
+  },
+  {
+    "id": "R4-003",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "`base_in_amount()` helper is over-abstracted into a function for a constant",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:29-31",
+    "summary": "`fun base_in_amount(): u64 { 1 * constants::float_scaling() }` is a zero-parameter helper returning a fixed value. Move 2024 supports `const` initialisers that call simple framework functions in many cases, but even if `constants::float_scaling()` is non-const, the four call sites would read more cleanly as `let base_in = mint_for_testing<SUI>(1 * constants::float_scaling(), test.ctx());` inline, or via a single named local variable computed once at the top of each test. The function wrapper adds a layer of indirection (jump-to-definition to confirm the value) for a trivial expression used in four places that all want the same value. Either inline it or — if you keep a helper — fold it into the per-test fixture function suggested in R4-001."
+  },
+  {
+    "id": "R4-004",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "`public entry` is redundant in Move 2024 (W99010 lint already flagged in green log)",
+    "location": "independent/02-slippage-swap/sources/slippage_swap.move:33",
+    "summary": "Move 2024 emits W99010 `unnecessary 'entry' on a 'public' function` for `public entry fun swap_exact_base_for_quote`. The synthesis-notes acknowledged this and deferred it to iter-2. From a simplicity standpoint, the `entry` keyword adds no behaviour for `public` functions (which are already callable as the top-level transaction call) and removing it eliminates the lint. The contract.md spec text uses the phrase 'public entry function' colloquially in AC2.2 but the verification clause itself only requires 'a `public entry fun`' as the surface form, so this is a quality nit not a spec breach — but `public fun` would compile cleaner and is the canonical Move 2024 form."
+  },
+  {
+    "id": "R4-005",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "T-003 deletion is documented in 11 lines of inline comment that could be 2 lines plus a friction-log pointer",
+    "location": "independent/02-slippage-swap/tests/slippage_swap_tests.move:111-121",
+    "summary": "The dropped-T-003 explanation runs from line 111 to 121 (11 lines) and re-derives the test-scenario shared-object reset limitation, the workaround attempt, the asymptotic argument that T-001 + T-002 already pin the boundary, and a pointer to raw-friction.log. Since the friction log already captures the full root cause and the synthesis-notes for cycle 2 also document it, the inline block could collapse to: `// T-003 dropped: test_scenario does not reset shared-object store between two begin/end pairs in one #[test], so the second setup_everything aborts in deepbook::registry::test_registry. The boundary case value == min_out is pinned asymptotically by T-001 and T-002. See independent/raw-friction.log.` That is two lines and preserves every actionable fact. Reduces visual weight in the test file."
+  }
+]

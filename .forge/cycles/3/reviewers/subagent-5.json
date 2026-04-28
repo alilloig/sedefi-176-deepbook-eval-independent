@@ -1,0 +1,18 @@
+[
+  {
+    "id": "R5-001",
+    "severity": "low",
+    "dimension": "tests-vs-impl",
+    "title": "T-005 omits the event-vs-coin quote_out_amount cross-check that T-004 performs",
+    "where": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move:342-369",
+    "finding": "T-004 cross-checks that the `TriggerFired.quote_out_amount` event field equals `coin::value(&quote_out)` for the USDC the OWNER actually receives (line 265: `assert!(coin::value(&quote_out) == event_quote_out_amount, 409);`). T-005 captures `event_vault_id` only (line 320) and never captures `event_quote_out_amount`, so on the SL branch the test does not pin that the event-reported amount matches the realised swap output. T-005 still asserts `coin::value(&quote_out) > 0` (line 362) and the event's `current_price`/`owner`/`vault_id` fields, so the gap is bounded — but the symmetric assertion is cheap and would catch a regression where the SL branch reports a stale or zero `quote_out_amount` while the swap nevertheless settles correctly. T-004 covers this for the TP branch, so the regression risk is limited to a hypothetical branch-divergence in `execute_trigger` that does not exist today (the function has a single emit site for both branches)."
+  },
+  {
+    "id": "R5-002",
+    "severity": "low",
+    "dimension": "tests-vs-impl",
+    "title": "T-004 no-side-channel pin checks USDC and DEEP at KEEPER but not the base-residual SUI",
+    "where": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move:277-287",
+    "finding": "T-004 asserts `!has_most_recent_for_address<Coin<USDC>>(KEEPER)` and `!has_most_recent_for_address<Coin<DEEP>>(KEEPER)` to pin Contract decisions #3 (the permissionless trigger caller must not skim swap output as a side-channel). The implementation routes all three returned coins (`base_residual`, `quote_out`, `deep_residual`) to `vault.owner` at sources/tpsl_vault.move:158-160, so the base-residual `Coin<SUI>` is also a potential side-channel surface. The test omits the corresponding `!has_most_recent_for_address<Coin<SUI>>(KEEPER)` check. In practice `swap_exact_base_for_quote` typically consumes the entire base input so the residual is 0 and a stray-transfer regression would be caught by the OWNER-side `take_from_sender<Coin<SUI>>` (line 268) failing to find the coin — but the negative assertion against KEEPER would make the no-side-channel invariant fully enforced rather than partially asserted. Pure invariant-tightening; current behaviour is correct."
+  }
+]

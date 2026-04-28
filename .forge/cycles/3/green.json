@@ -1,0 +1,8 @@
+{
+  "phase": "green",
+  "exit_code": 0,
+  "phase_pass": true,
+  "started_at": "2026-04-27T22:48:43Z",
+  "ended_at": "2026-04-27T22:48:45Z",
+  "command": "bash -c sui move test -e localnet"
+}

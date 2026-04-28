@@ -1,0 +1,26 @@
+[
+  {
+    "id": "R6-001",
+    "severity": "high",
+    "dimension": "security",
+    "title": "execute_trigger does not bind the supplied Pool to vault.pool_id",
+    "location": "independent/03-tpsl-vault/move/sources/tpsl_vault.move:125-150",
+    "description": "Vault<Base> stores pool_id: ID at construction time and emits it in VaultCreated, signalling that the vault is bound to a specific DeepBook pool. However, execute_trigger<Base, Quote> takes pool: &mut Pool<Base, Quote> as a separate parameter and never asserts that object::id(pool) == vault.pool_id. A permissionless caller (the trigger is explicitly open to anyone) can therefore supply ANY Pool<Base, Quote> with matching base/quote type parameters - including a low-liquidity, freshly-created, or otherwise manipulated pool - and the swap will proceed against that pool with min_quote_out = 0. The owner receives Coin<Quote> from the wrong pool, almost certainly at a materially worse price than the pool the user selected when creating the vault. This is direct economic harm enabled by a missing assert that the contract's own data model already implies. Severity is high because (a) the attack is permissionless and zero-cost beyond gas, (b) the slippage floor is 0 so there is no compensating defense, (c) any base/quote pair can be deployed permissionlessly on DeepBook so an attacker can stand up a poisoned pool on demand, and (d) the spec itself names pool_id as a stored field that the keeper / UI is expected to honor - the Move package is the only layer that can enforce it. Recommended fix: assert!(object::id(pool) == vault.pool_id, EWrongPool) at the top of execute_trigger, with a new non-zero error constant EWrongPool: u64 = 1005."
+  },
+  {
+    "id": "R6-002",
+    "severity": "medium",
+    "dimension": "security",
+    "title": "current_price is attacker-controlled and combines with min_quote_out = 0 to enable price-manipulation MEV",
+    "location": "independent/03-tpsl-vault/move/sources/tpsl_vault.move:128,150",
+    "description": "execute_trigger accepts current_price: u64 from the caller as the sole gate (lines 136-138) and passes min_quote_out = 0 to deepbook::pool::swap_exact_base_for_quote (line 150). The Move package performs no on-chain validation of current_price against any oracle (per spec: keeper cross-checks Pyth off-chain). Because the trigger is permissionless, any address can call execute_trigger with current_price = vault.tp_price (or any value satisfying the gate) the moment a vault exists. Combined with min_quote_out = 0, this means an MEV attacker can: (1) observe a vault on-chain, (2) push the bound DeepBook pool to a worse price by sandwiching or wash-trading, (3) call execute_trigger immediately with a satisfying current_price and force settlement at the manipulated mid. The owner eats the full slippage with no on-chain protection. The contract is intentionally designed to delegate this gate to the keeper (per Behavior section), but this is a security-relevant design property worth surfacing because: (a) the spec assumes one trusted keeper, but the function is open to any caller, so the trust assumption is structurally broken once a real attacker enters the picture, and (b) downstream cycles (3b keeper, 3c UI) cannot defend the vault from this - the only on-chain mitigation point is the Move package itself. Mitigations the implementer could add without breaking spec: take min_quote_out: u64 as an additional parameter (keeper computes from depth), or validate current_price against the pool's mid_price() reading at trigger time with a configurable bps tolerance. If the project explicitly accepts the risk for v1, this finding is documentation-grade rather than blocking - but it must not be silent."
+  },
+  {
+    "id": "R6-003",
+    "severity": "low",
+    "dimension": "security",
+    "title": "create_vault accepts both tp_price = None and sl_price = None, yielding an ungovernable vault",
+    "location": "independent/03-tpsl-vault/move/sources/tpsl_vault.move:68-103",
+    "description": "create_vault does not validate that at least one of tp_price or sl_price is Some. A vault constructed with both as None can never satisfy the trigger condition (lines 136-138 will always evaluate tp_met = false and sl_met = false), so execute_trigger always aborts with ETriggerConditionNotMet. The funds are still recoverable by the owner via withdraw, so this is not a custody-loss bug, but it is a footgun: a misconfigured create_vault call locks funds into a shared object that exists only as a no-op record. The contract spec itself documents EInvalidTriggerConfig as 'optional defense-in-depth' (lines 191-198 of contract.md), which the implementer chose to omit. Recommend either adding the guard (one-line assert!(tp_price.is_some() || sl_price.is_some(), EInvalidTriggerConfig)) or adding a code comment in create_vault explicitly acknowledging the trade-off, since the spec calls it out as a recommended check. Severity is low because the funds remain owner-recoverable; no attacker exploitation path."
+  }
+]

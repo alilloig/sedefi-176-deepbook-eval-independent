@@ -1,0 +1,38 @@
+[
+  {
+    "id": "T-001",
+    "name": "swap succeeds and delivers quote_out at or above min_out when liquidity is sufficient",
+    "behavior": "given a deepbook test pool constructed via deepbook::pool_tests::setup_everything (bid at 1.0, ask at 2.0, 1000 base units of liquidity per side), and a caller-supplied base coin of 100 base units, a sufficient DEEP fee coin, and a min_out set strictly below the realised quote output (e.g., 50 quote units when ~100 are realisable against the bid), the wrapper's public entry function returns successfully; after test_scenario advances to the next tx, the sender holds a Coin<QuoteAsset> with value >= min_out (asserted via test_scenario::take_from_sender + coin::value)",
+    "kind": "unit",
+    "target_file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "test_file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "covers_contract_requirement": "AC2.3"
+  },
+  {
+    "id": "T-002",
+    "name": "swap aborts with EInsufficientOutput when min_out exceeds achievable quote_out",
+    "behavior": "given the same deepbook test pool fixture (setup_everything), the same base/DEEP input coins, but a min_out set strictly above any realisable output (e.g., 1_000_000_000 quote units when only ~100 are realisable, or u64::MAX), the wrapper aborts with the named error constant slippage_swap::EInsufficientOutput; this test is annotated #[test, expected_failure(abort_code = ::slippage_swap::slippage_swap::EInsufficientOutput)] so a successful run produces the expected abort and confirms the assertion fires from the wrapper itself rather than from deepbook's internal min-out check (the wrapper's assert! is the gate; deepbook is invoked with a permissive internal min_quote_out so it does not pre-empt the wrapper's assertion)",
+    "kind": "unit",
+    "target_file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "test_file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "covers_contract_requirement": "AC2.3"
+  },
+  {
+    "id": "T-004",
+    "name": "swap succeeds with min_out = 0 against a normal-sized input",
+    "behavior": "given the deepbook test pool fixture and a typical base input (e.g., 100 base units), invoking the wrapper with min_out = 0 must succeed and route a Coin<QuoteAsset> of strictly positive value to the sender; confirms the wrapper does not impose a hidden non-zero floor and that EInsufficientOutput is purely caller-driven",
+    "kind": "unit",
+    "target_file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "test_file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "covers_contract_requirement": "AC2.3"
+  },
+  {
+    "id": "T-005",
+    "name": "successful swap transfers all three returned coins (base residual, quote_out, DEEP residual) to the sender and creates no BalanceManager",
+    "behavior": "given the deepbook test pool fixture and a successful wrapper invocation (min_out below realised), after test_scenario.next_tx the sender owns: (a) a Coin<BaseAsset> for any unconsumed base residual, (b) a Coin<QuoteAsset> for the realised quote output, and (c) a Coin<DEEP> for any unconsumed DEEP fee residual; each is taken from sender via test_scenario::take_from_sender<Coin<...>> without aborting, then returned to sender. The test additionally asserts that no BalanceManager object is owned by sender (test_scenario::has_most_recent_for_sender<BalanceManager>() returns false), pinning the no-manager-path constraint that E-005 verifies on-chain",
+    "kind": "unit",
+    "target_file": "independent/02-slippage-swap/sources/slippage_swap.move",
+    "test_file": "independent/02-slippage-swap/tests/slippage_swap_tests.move",
+    "covers_contract_requirement": "AC2.3"
+  }
+]

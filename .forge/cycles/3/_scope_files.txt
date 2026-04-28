@@ -1,0 +1,4 @@
+`independent/03-tpsl-vault/move/Move.toml`
+`independent/03-tpsl-vault/move/sources/**/*.move`
+`independent/03-tpsl-vault/move/tests/**/*.move`
+`independent/raw-friction.log`

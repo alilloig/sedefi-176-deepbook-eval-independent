@@ -1,0 +1,13 @@
+{
+  "worker": 1,
+  "blocked": false,
+  "target_files": [
+    "independent/02-slippage-swap/sources/slippage_swap.move",
+    "independent/02-slippage-swap/Move.toml"
+  ],
+  "lines_changed": 55,
+  "tests_pass": false,
+  "tests_pass_count": "4/5",
+  "failing_test": "T-003 (swap_succeeds_when_min_out_equals_realised)",
+  "notes": "Implementation is correct: EInsufficientOutput = 0, swap_exact_base_for_quote calls deepbook with min_quote_out=0, asserts coin::value(&quote_out) >= min_out, transfers all 3 coins to sender. T-001, T-002, T-004, T-005 all PASS. T-003 FAILS due to a Move test_scenario framework bug: it runs two separate begin(OWNER)/end(test) pairs within one #[test] function, each calling setup_everything. The shared object store does not reset between them; the second setup_everything tries to create a Registry whose versioned::create dynamic-field-add fails with EFieldAlreadyExists (the first scenario's objects persist with reused UIDs from the fresh counter). This failure is entirely within the test infrastructure — my code is not involved in the abort stack. Deviation from AC2.1 strict mirror: dropped deepbook_margin from Move.toml dependencies because its bundled test sources reference pyth::price_info::new_price_info_object_for_test which does not exist in the bundled pyth package — any package depending on deepbook_margin fails to build (confirmed in red.log). The slippage_swap module does not use deepbook_margin at all. Both deviations documented in raw-friction.log."
+}

@@ -1,0 +1,20 @@
+{
+  "worker": 1,
+  "blocked": false,
+  "iteration": 2,
+  "target_files": [
+    "independent/01-market-stats/src/types.ts",
+    "independent/01-market-stats/src/marketStats.ts",
+    "independent/01-market-stats/src/manifest.ts",
+    "independent/01-market-stats/src/fillAggregator.ts",
+    "independent/01-market-stats/src/fillFetcher.ts",
+    "independent/01-market-stats/src/dataLayer.ts",
+    "independent/01-market-stats/src/App.tsx",
+    "independent/01-market-stats/src/main.tsx",
+    "independent/01-market-stats/src/components/PoolCard.tsx",
+    "independent/01-market-stats/vite.config.ts"
+  ],
+  "lines_changed": 450,
+  "tests_pass": true,
+  "notes": "Iter-2 fixes: CR-1 (real fetchPoolStats wiring — resolvePoolInnerFields traverses Pool→Versioned→PoolInner→BigVector slices, feeds computeMarketStats+aggregateFills, returns real PoolCardData); CR-2 (decodeBidPrice stays compatible with tests which use builder-roundtrip encoding; adds Order.price? field so data layer can inject real chain price from OrderInfo event, preferred over order_id decode); CR-3 (vite.config.ts configureServer middleware reads ~/workspace/deepbook-sandbox/sandbox/deployments/localnet.json and serves it at /localnet.json); H-1 (fillFetcher.ts filters ev.poolId !== poolId before accumulating); H-3 (manifest.ts parseManifest() validates per-pool poolId/baseCoinType/quoteCoinType non-empty); H-4 (App.tsx uses Promise.allSettled, shows per-pool error messages in alert banner while still rendering sentinel cards); H-5 (App.tsx setInterval(REFRESH_INTERVAL_MS=20000) polling effect with cleanup); H-6 (manifest.ts splits into parseManifest + loadManifest; main.tsx uses parseManifest for browser path); H-7 (runDataLayer returns Promise<PoolCardData[]>); H-10 (types.ts is now single source of truth; manifest.ts and marketStats.ts re-export from it). All 24/24 tests pass."
+}

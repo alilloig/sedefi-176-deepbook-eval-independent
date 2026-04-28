@@ -1,0 +1,42 @@
+[
+  {
+    "id": "R4-001",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "Four explicit `use` aliases shadow Move 2024 implicit imports",
+    "location": "independent/03-tpsl-vault/move/sources/tpsl_vault.move:10,15,16,17",
+    "summary": "Per Move Book `book/move-basics/standard-library.md` and `book/programmability/sui-framework.md` the following are implicit in Move 2024 / current Sui Framework and need no explicit `use`: `std::option::Option`, `sui::object` (and its `ID`/`UID` types), `sui::transfer`, `sui::tx_context::TxContext`. The current source declares all four explicitly: line 10 `use std::option::Option;`, line 15 `use sui::object::{Self, ID, UID};` (only the bare `object` module path is needed for `object::new(ctx)` and `object::id(&vault)` — the `ID, UID` aliases duplicate the implicit ones), line 16 `use sui::transfer;`, line 17 `use sui::tx_context::TxContext;`. The synthesis-notes calls out exactly these as the three suppressed unused-alias linter warnings. Removing them drops four lines of import noise and stops generating the W04004 / W04005 unused-alias warnings the green log already flagged. Line 15 should collapse to `use sui::object;` (or be removed entirely if no `object::` qualified call survives — `object::new(ctx)` does, so keep the bare module use)."
+  },
+  {
+    "id": "R4-002",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "Per-test `begin/setup_everything/mint/create_vault` block duplicated across all seven tests",
+    "location": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move:50-72,118-133,162-177,194-209,301-316,389-406,441-456",
+    "summary": "Every `#[test]` opens with the same six-line incantation: `begin(OWNER) -> setup_everything<SUI,USDC,SUI,DEEP> -> next_tx(OWNER) -> mint_for_testing<SUI>(base_in_amount(), test.ctx()) -> create_vault<SUI>(coin_in, pool_id, SIDE_LONG, tp, sl, test.ctx())`. Only the `(tp, sl)` option pair varies (T-001/T-002/T-003/T-007: `Some(2*float),None`/`Some(1*float),None`; T-005: `None,Some(2*float)`; T-006: `Some(10*float),Some(0)`). A single `#[test_only] fun setup_vault(test: &mut Scenario, tp: Option<u64>, sl: Option<u64>): ID` (returning `pool_id` for the trigger tests) would absorb roughly 60 LOC of pure boilerplate across the file and let each test body lead with the behaviour it actually verifies. The same applies to the trigger-prep block (T-004:218-256, T-005:322-357, T-006:408-427, T-007:459-478) — `take_shared<Vault<SUI>>` + `take_shared_by_id<Pool<SUI,USDC>>(pool_id)` + `take_shared<Clock>` + `mint_for_testing<DEEP>(DEEP_IN, ctx)` is repeated four times. The simplicity lens called this out explicitly and the file is on the heavy side of the spec envelope (~150 Move LOC) at 489 test LOC partly because of this duplication."
+  },
+  {
+    "id": "R4-003",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "`let _ = event_vault_id;` discards in T-004/T-005 are dead noise",
+    "location": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move:289-291,372-374",
+    "summary": "Both lines have a comment claiming they 'suppress unused-variable warning for the captured event_vault_id'. They do not — the variable is already read at line 244 (`assert!(event_vault_id == vault_id_now, 405)`) and line 346 (`assert!(event_vault_id == vault_id_now, 503)`), inside the same `next_tx` block where it is assigned. The Move compiler does not flag these as unused, so the `let _ = event_vault_id;` discard plus the two-line explanatory comment is dead code. Delete both blocks (4 lines plus 4 comment lines = 8 LOC removable) without changing test behaviour. If the worker added them defensively because the event-buffer-resets workaround was iterated through several attempts, that's a sealed-iteration artifact worth cleaning up."
+  },
+  {
+    "id": "R4-004",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "Three implementation comments paraphrase the next line of code",
+    "location": "independent/03-tpsl-vault/move/sources/tpsl_vault.move:135,143,162",
+    "summary": "Line 135 (`// Check TP or SL condition.`) labels the three condition-evaluation lines that immediately follow, where `tp_met` / `sl_met` / `assert!(... ETriggerConditionNotMet)` already self-document at the variable-name level. Line 143 (`// Drain the vault balance into a Coin<Base>.`) restates `let base_balance = balance::withdraw_all(&mut vault.balance);` plus `let base_in = coin::from_balance(base_balance, ctx);`. Line 162 (`// Mark triggered.`) restates `vault.triggered = true;`. These three comments add zero design-intent value beyond the code. Keep the substantive comments at lines 147-148 (min_quote_out=0 rationale) and lines 156-157 (no-side-channel routing rationale) — those carry intent that is not derivable from the line below. Drop the three paraphrase comments; the function-level doc-comment at lines 118-123 already enumerates the trigger flow."
+  },
+  {
+    "id": "R4-005",
+    "dimension": "simplicity",
+    "severity": "low",
+    "title": "Test event-buffer workaround comments restate the same lesson three times",
+    "location": "independent/03-tpsl-vault/move/tests/tpsl_vault_tests.move:55-61,211-216,318-321",
+    "summary": "T-001 (lines 55-61), T-004 (lines 211-216), and T-005 (lines 318-321) each carry a multi-line preamble comment re-explaining that `test_scenario` clears the events buffer on every `next_tx` and that the workaround is to capture event-derived values into mutable locals declared before the firing tx. T-005's version even says verbatim 'T-005 same fix pattern as T-004'. This is the synthesis-notes orchestrator-amendment lesson restated three times in the source. Collapse to one short header comment near the top of the test module (e.g., `// Note: test_scenario clears the events buffer on next_tx; capture event values into locals declared before the firing tx for cross-tx assertions.`) and drop the three per-test re-explanations. The friction-log already captures the root cause; the test bodies should not have to retell it. Saves ~12 LOC of comment cruft and reduces the visual weight of T-001/T-004/T-005."
+  }
+]

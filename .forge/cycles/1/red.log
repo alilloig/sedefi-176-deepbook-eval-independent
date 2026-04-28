@@ -1,0 +1,175 @@
+
+> @independent/01-market-stats@0.0.1 test /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats
+> vitest run
+
+
+ RUN  v3.2.4 /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats
+
+ ❯ tests/chainShape.test.ts (2 tests | 1 failed) 59ms
+   ✓ chain-shape capture (G-PoolShape) > T-021 notes/chain-shape.md exists and contains both pool inner-state and fill-event captures 13ms
+   × chain-shape capture (G-PoolShape) > T-022 at least one src/ TypeScript file references notes/chain-shape.md as derivation source 44ms
+     → expected at least one TypeScript source file under /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/src: expected 0 to be greater than 0
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/App.test.tsx [ tests/App.test.tsx ]
+Error: Failed to resolve import "../src/App.js" from "tests/App.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/tests/App.test.tsx:18:34
+  3  |  import { render, screen, cleanup, waitFor } from "@testing-library/react";
+  4  |  import "@testing-library/jest-dom/vitest";
+  5  |  import { App } from "../src/App.js";
+     |                       ^
+  6  |  const FIXTURE_PACKAGE_ID = "0x" + "b".repeat(64);
+  7  |  const fixtureManifest = {
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/PoolCard.test.tsx [ tests/PoolCard.test.tsx ]
+Error: Failed to resolve import "../src/components/PoolCard.js" from "tests/PoolCard.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/tests/PoolCard.test.tsx:14:44
+  3  |  import { render, screen, cleanup } from "@testing-library/react";
+  4  |  import "@testing-library/jest-dom/vitest";
+  5  |  import { PoolCard } from "../src/components/PoolCard.js";
+     |                            ^
+  6  |  const baseData = {
+  7  |    poolId: "0x" + "a".repeat(64),
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  tests/fillAggregator.test.ts [ tests/fillAggregator.test.ts ]
+Error: Failed to resolve import "../src/fillAggregator.js" from "tests/fillAggregator.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/tests/fillAggregator.test.ts:25:7
+  2  |  import {
+  3  |    aggregateFills
+  4  |  } from "../src/fillAggregator.js";
+     |          ^
+  5  |  const NOW = 2e12;
+  6  |  const HOUR = 60 * 60 * 1e3;
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  tests/fillFetcher.test.ts [ tests/fillFetcher.test.ts ]
+Error: Failed to resolve import "../src/fillFetcher.js" from "tests/fillFetcher.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/tests/fillFetcher.test.ts:24:7
+  2  |  import {
+  3  |    fetchFills
+  4  |  } from "../src/fillFetcher.js";
+     |          ^
+  5  |  const NOW = 2e12;
+  6  |  const HOUR = 60 * 60 * 1e3;
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  tests/manifest.test.ts [ tests/manifest.test.ts ]
+Error: Failed to resolve import "../src/manifest.js" from "tests/manifest.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/tests/manifest.test.ts:20:7
+  5  |  import {
+  6  |    loadManifest
+  7  |  } from "../src/manifest.js";
+     |          ^
+  8  |  async function writeFixture(contents, name = "localnet.json") {
+  9  |    const dir = await fs.mkdtemp(path.join(tmpdir(), "mstats-manifest-"));
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  tests/marketStats.test.ts [ tests/marketStats.test.ts ]
+Error: Failed to resolve import "../src/marketStats.js" from "tests/marketStats.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/tests/marketStats.test.ts:30:7
+  2  |  import {
+  3  |    computeMarketStats
+  4  |  } from "../src/marketStats.js";
+     |          ^
+  5  |  const ASK_BIT_OFFSET = 1n << 127n;
+  6  |  const PRICE_BIT_OFFSET = 1n << 64n;
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  tests/networkShape.test.ts [ tests/networkShape.test.ts ]
+Error: Failed to resolve import "../src/dataLayer.js" from "tests/networkShape.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/tests/networkShape.test.ts:19:29
+  1  |  import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+  2  |  import { runDataLayer } from "../src/dataLayer.js";
+     |                                ^
+  3  |  const FIXTURE_PACKAGE_ID = "0xe7b03bfa906a4c4f2a696ad253f9815a55eafb50f6aa52b121128c8d5cef4329";
+  4  |  const fixtureManifest = {
+ ❯ TransformPluginContext._formatLog node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29003:43
+ ❯ TransformPluginContext.error node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:29000:14
+ ❯ normalizeUrl node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27123:18
+ ❯ node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27181:32
+ ❯ TransformPluginContext.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:27149:4
+ ❯ EnvironmentPluginContainer.transform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:28801:14
+ ❯ loadAndTransform node_modules/.pnpm/vite@7.3.2_@types+node@24.12.2/node_modules/vite/dist/node/chunks/config.js:22670:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/chainShape.test.ts > chain-shape capture (G-PoolShape) > T-022 at least one src/ TypeScript file references notes/chain-shape.md as derivation source
+AssertionError: expected at least one TypeScript source file under /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats/src: expected 0 to be greater than 0
+ ❯ tests/chainShape.test.ts:82:7
+     80|       tsFiles.length,
+     81|       `expected at least one TypeScript source file under ${srcDir}`,
+     82|     ).toBeGreaterThan(0);
+       |       ^
+     83| 
+     84|     let referencingFile: string | null = null;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  8 failed (8)
+      Tests  1 failed | 1 passed (2)
+   Start at  21:48:44
+   Duration  2.05s (transform 130ms, setup 0ms, collect 148ms, tests 59ms, environment 11.32s, prepare 1.10s)
+
+ ELIFECYCLE  Test failed. See above for more details.

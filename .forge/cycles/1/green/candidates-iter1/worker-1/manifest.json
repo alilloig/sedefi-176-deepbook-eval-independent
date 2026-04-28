@@ -1,0 +1,20 @@
+{
+  "worker": 1,
+  "blocked": false,
+  "target_files": [
+    "independent/01-market-stats/src/types.ts",
+    "independent/01-market-stats/src/manifest.ts",
+    "independent/01-market-stats/src/marketStats.ts",
+    "independent/01-market-stats/src/fillAggregator.ts",
+    "independent/01-market-stats/src/fillFetcher.ts",
+    "independent/01-market-stats/src/dataLayer.ts",
+    "independent/01-market-stats/src/components/PoolCard.tsx",
+    "independent/01-market-stats/src/App.tsx",
+    "independent/01-market-stats/src/main.tsx",
+    "independent/01-market-stats/index.html"
+  ],
+  "lines_changed": 615,
+  "tests_pass": true,
+  "complexity_proxy": 73,
+  "notes": "Baseline simple implementation: pure compute fns, bare-fetch JSON-RPC data layer, useEffect-based App with injected deps."
+}

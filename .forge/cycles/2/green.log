@@ -1,0 +1,35 @@
+[NOTE] Updating dependencies for `localnet` environment because "./Move.toml" has been changed since the last update.
+INCLUDING DEPENDENCY MoveStdlib
+INCLUDING DEPENDENCY Sui
+INCLUDING DEPENDENCY deepbook
+INCLUDING DEPENDENCY pyth
+INCLUDING DEPENDENCY token
+INCLUDING DEPENDENCY usdc
+BUILDING slippage_swap
+[0m[1m[38;5;11mwarning[Lint W99010][0m[1m: unnecessary `entry` on a `public` function[0m
+   [0m[34m┌─[0m ./sources/slippage_swap.move:33:8
+   [0m[34m│[0m
+[0m[34m33[0m [0m[34m│[0m public [0m[33mentry[0m fun swap_exact_base_for_quote<BaseAsset, QuoteAsset>(
+   [0m[34m│[0m        [0m[33m^^^^^[0m [0m[33m`entry` on `public` is meaningless. In conjunction with `public`, `entry` adds no additional permissions or restrictions.[0m
+   [0m[34m│[0m
+   [0m[34m=[0m `public` functions can be called from PTBs. `entry` can be used to allow non-`public` (private or `public(package)`) functions to be called from PTBs, although there will be additional restrictions on the input arguments to such functions.
+   [0m[34m=[0m This warning can be suppressed with '#[allow(lint(public_entry))]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W01004][0m[1m: invalid documentation comment[0m
+  [0m[34m┌─[0m /Users/alilloig/workspace/deepbook-sandbox/sandbox/packages/pyth/sources/price.move:4:5
+  [0m[34m│[0m  
+[0m[34m4[0m [0m[34m│[0m [0m[33m╭[0m     [0m[33m/// A price with a degree of uncertainty, represented as a price +- a confidence interval.[0m
+[0m[34m5[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    ///[0m
+[0m[34m6[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// The confidence interval roughly corresponds to the standard error of a normal distribution.[0m
+[0m[34m7[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// Both the price and confidence are stored in a fixed-point numeric representation,[0m
+[0m[34m8[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// `x * (10^expo)`, where `expo` is the exponent.[0m
+  [0m[34m│[0m [0m[33m╰[0m[0m[33m──────────────────────────────────────────────────────^ Documentation comment cannot be matched to a language item[0m
+
+Running Move unit tests
+[ PASS    ] slippage_swap::slippage_swap_tests::swap_aborts_when_min_out_unreachable
+[ PASS    ] slippage_swap::slippage_swap_tests::swap_succeeds_when_liquidity_sufficient
+[ PASS    ] slippage_swap::slippage_swap_tests::swap_succeeds_when_min_out_is_zero
+[ PASS    ] slippage_swap::slippage_swap_tests::swap_transfers_all_three_coins_and_no_manager
+Test result: OK. Total tests: 4; passed: 4; failed: 0
+Please report feedback on the linter warnings at https://forums.sui.io
+

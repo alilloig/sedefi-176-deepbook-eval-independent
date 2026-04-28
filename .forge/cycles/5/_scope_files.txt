@@ -1,0 +1,8 @@
+`independent/03-tpsl-vault/ui/package.json`
+`independent/03-tpsl-vault/ui/tsconfig.json`
+`independent/03-tpsl-vault/ui/tsconfig.node.json`
+`independent/03-tpsl-vault/ui/vite.config.ts`
+`independent/03-tpsl-vault/ui/index.html`
+`independent/03-tpsl-vault/ui/src/**/*.ts`
+`independent/03-tpsl-vault/ui/src/**/*.tsx`
+`independent/raw-friction.log`

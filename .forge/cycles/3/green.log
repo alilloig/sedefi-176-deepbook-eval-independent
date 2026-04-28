@@ -1,0 +1,123 @@
+INCLUDING DEPENDENCY MoveStdlib
+INCLUDING DEPENDENCY Sui
+INCLUDING DEPENDENCY deepbook
+INCLUDING DEPENDENCY pyth
+INCLUDING DEPENDENCY token
+INCLUDING DEPENDENCY usdc
+BUILDING tpsl_vault
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:11:10
+   [0m[34m│[0m
+[0m[34m11[0m [0m[34m│[0m use std::[0m[33moption[0m;
+   [0m[34m│[0m          [0m[33m^^^^^^[0m [0m[33mUnnecessary alias 'option' for module 'std::option'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:15:10
+   [0m[34m│[0m
+[0m[34m15[0m [0m[34m│[0m use sui::[0m[33mobject[0m;
+   [0m[34m│[0m          [0m[33m^^^^^^[0m [0m[33mUnnecessary alias 'object' for module 'sui::object'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W09003][0m[1m: unused assignment[0m
+   [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:60:9
+   [0m[34m│[0m
+[0m[34m60[0m [0m[34m│[0m     let [0m[33mmut event_vault_id[0m = object::id_from_address(@0x0);
+   [0m[34m│[0m         [0m[33m^^^^^^^^^^^^^^^^^^[0m [0m[33mUnused assignment for variable 'event_vault_id'. Consider removing, replacing with '_', or prefixing with '_' (e.g., '_event_vault_id')[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(unused_assignment)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W09003][0m[1m: unused assignment[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:214:9
+    [0m[34m│[0m
+[0m[34m214[0m [0m[34m│[0m     let [0m[33mmut event_vault_id[0m = object::id_from_address(@0x0);
+    [0m[34m│[0m         [0m[33m^^^^^^^^^^^^^^^^^^[0m [0m[33mUnused assignment for variable 'event_vault_id'. Consider removing, replacing with '_', or prefixing with '_' (e.g., '_event_vault_id')[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_assignment)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W09003][0m[1m: unused assignment[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:215:9
+    [0m[34m│[0m
+[0m[34m215[0m [0m[34m│[0m     let [0m[33mmut event_quote_out_amount[0m: u64 = 0;
+    [0m[34m│[0m         [0m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m [0m[33mUnused assignment for variable 'event_quote_out_amount'. Consider removing, replacing with '_', or prefixing with '_' (e.g., '_event_quote_out_amount')[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_assignment)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W09003][0m[1m: unused assignment[0m
+    [0m[34m┌─[0m ./tests/tpsl_vault_tests.move:320:9
+    [0m[34m│[0m
+[0m[34m320[0m [0m[34m│[0m     let [0m[33mmut event_vault_id[0m = object::id_from_address(@0x0);
+    [0m[34m│[0m         [0m[33m^^^^^^^^^^^^^^^^^^[0m [0m[33mUnused assignment for variable 'event_vault_id'. Consider removing, replacing with '_', or prefixing with '_' (e.g., '_event_vault_id')[0m
+    [0m[34m│[0m
+    [0m[34m=[0m This warning can be suppressed with '#[allow(unused_assignment)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./sources/tpsl_vault.move:10:18
+   [0m[34m│[0m
+[0m[34m10[0m [0m[34m│[0m use std::option::[0m[33mOption[0m;
+   [0m[34m│[0m                  [0m[33m^^^^^^[0m [0m[33mUnnecessary alias 'Option' for module member 'std::option::Option'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./sources/tpsl_vault.move:15:19
+   [0m[34m│[0m
+[0m[34m15[0m [0m[34m│[0m use sui::object::{[0m[33mSelf[0m, ID, UID};
+   [0m[34m│[0m                   [0m[33m^^^^[0m [0m[33mUnnecessary alias 'object' for module 'sui::object'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./sources/tpsl_vault.move:15:25
+   [0m[34m│[0m
+[0m[34m15[0m [0m[34m│[0m use sui::object::{Self, [0m[33mID[0m, UID};
+   [0m[34m│[0m                         [0m[33m^^[0m [0m[33mUnnecessary alias 'ID' for module member 'sui::object::ID'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./sources/tpsl_vault.move:15:29
+   [0m[34m│[0m
+[0m[34m15[0m [0m[34m│[0m use sui::object::{Self, ID, [0m[33mUID[0m};
+   [0m[34m│[0m                             [0m[33m^^^[0m [0m[33mUnnecessary alias 'UID' for module member 'sui::object::UID'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./sources/tpsl_vault.move:16:10
+   [0m[34m│[0m
+[0m[34m16[0m [0m[34m│[0m use sui::[0m[33mtransfer[0m;
+   [0m[34m│[0m          [0m[33m^^^^^^^^[0m [0m[33mUnnecessary alias 'transfer' for module 'sui::transfer'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W02021][0m[1m: duplicate alias[0m
+   [0m[34m┌─[0m ./sources/tpsl_vault.move:17:22
+   [0m[34m│[0m
+[0m[34m17[0m [0m[34m│[0m use sui::tx_context::[0m[33mTxContext[0m;
+   [0m[34m│[0m                      [0m[33m^^^^^^^^^[0m [0m[33mUnnecessary alias 'TxContext' for module member 'sui::tx_context::TxContext'. This alias is provided by default[0m
+   [0m[34m│[0m
+   [0m[34m=[0m This warning can be suppressed with '#[allow(duplicate_alias)]' applied to the 'module' or module member ('const', 'fun', or 'struct')
+
+[0m[1m[38;5;11mwarning[W01004][0m[1m: invalid documentation comment[0m
+  [0m[34m┌─[0m /Users/alilloig/workspace/deepbook-sandbox/sandbox/packages/pyth/sources/price.move:4:5
+  [0m[34m│[0m  
+[0m[34m4[0m [0m[34m│[0m [0m[33m╭[0m     [0m[33m/// A price with a degree of uncertainty, represented as a price +- a confidence interval.[0m
+[0m[34m5[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    ///[0m
+[0m[34m6[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// The confidence interval roughly corresponds to the standard error of a normal distribution.[0m
+[0m[34m7[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// Both the price and confidence are stored in a fixed-point numeric representation,[0m
+[0m[34m8[0m [0m[34m│[0m [0m[33m│[0m [0m[33m    /// `x * (10^expo)`, where `expo` is the exponent.[0m
+  [0m[34m│[0m [0m[33m╰[0m[0m[33m──────────────────────────────────────────────────────^ Documentation comment cannot be matched to a language item[0m
+
+Running Move unit tests
+[ PASS    ] tpsl_vault::tpsl_vault_tests::create_vault_constructs_shared_vault_and_emits_event
+[ PASS    ] tpsl_vault::tpsl_vault_tests::execute_trigger_aborts_when_neither_tp_nor_sl_satisfied
+[ PASS    ] tpsl_vault::tpsl_vault_tests::execute_trigger_fires_on_sl_and_routes_proceeds_to_owner
+[ PASS    ] tpsl_vault::tpsl_vault_tests::execute_trigger_fires_on_tp_and_routes_proceeds_to_owner
+[ PASS    ] tpsl_vault::tpsl_vault_tests::withdraw_after_fire_aborts_with_evaulttriggered
+[ PASS    ] tpsl_vault::tpsl_vault_tests::withdraw_before_fire_returns_full_balance_to_owner
+[ PASS    ] tpsl_vault::tpsl_vault_tests::withdraw_by_non_owner_aborts_with_enotowner
+Test result: OK. Total tests: 7; passed: 7; failed: 0
+Total number of linter warnings suppressed: 3 (unique lints: 1)

@@ -1,0 +1,21 @@
+
+> @independent/01-market-stats@0.0.1 test /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats
+> vitest run
+
+
+ RUN  v3.2.4 /Users/alilloig/workspace/deepbook-sandbox-evaluation-apps/.claude/worktrees/alilloig+SEDEFI-176/independent/01-market-stats
+
+ ✓ tests/chainShape.test.ts (2 tests) 5ms
+ ✓ tests/fillFetcher.test.ts (3 tests) 2ms
+ ✓ tests/marketStats.test.ts (4 tests) 2ms
+ ✓ tests/networkShape.test.ts (1 test) 4ms
+ ✓ tests/manifest.test.ts (4 tests) 5ms
+ ✓ tests/fillAggregator.test.ts (4 tests) 5ms
+ ✓ tests/PoolCard.test.tsx (2 tests) 20ms
+ ✓ tests/App.test.tsx (4 tests) 37ms
+
+ Test Files  8 passed (8)
+      Tests  24 passed (24)
+   Start at  22:52:10
+   Duration  772ms (transform 153ms, setup 0ms, collect 631ms, tests 80ms, environment 2.29s, prepare 412ms)
+

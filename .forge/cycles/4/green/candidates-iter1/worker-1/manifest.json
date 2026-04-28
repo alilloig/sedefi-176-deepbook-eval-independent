@@ -1,0 +1,17 @@
+{
+  "worker": 1,
+  "blocked": false,
+  "target_files": [
+    "independent/03-tpsl-vault/keeper/src/config.ts",
+    "independent/03-tpsl-vault/keeper/src/logger.ts",
+    "independent/03-tpsl-vault/keeper/src/priceModel.ts",
+    "independent/03-tpsl-vault/keeper/src/pythReader.ts",
+    "independent/03-tpsl-vault/keeper/src/triggerEvaluator.ts",
+    "independent/03-tpsl-vault/keeper/src/triggerSubmitter.ts",
+    "independent/03-tpsl-vault/keeper/src/vaultRegistry.ts",
+    "independent/03-tpsl-vault/keeper/src/index.ts"
+  ],
+  "lines_changed": 598,
+  "tests_pass": false,
+  "notes": "8/9 tests pass. T-001 through T-005 (pure helpers), T-007 (logger), T-008 (config), T-009 (network shape) all pass. T-006 (triggerSubmitter PTB shape) has an arithmetic bug in the test: the test passes currentPrice=32_404_071n to buildTriggerTransaction but expects LE bytes [0x67, 0x99, 0xee, 0x01, ...] which encode 32_414_055n (= 0x01EE9967). The test comment 'claims 32_404_071 = 0x01EE9967' is mathematically false — 32_404_071 hex is 0x1EE7267, not 0x01EE9967. Any correct implementation of tx.pure.u64(32_404_071n) produces [103, 114, 238, 1, ...] (confirmed by SDK 2.16.0). T-006 cannot pass for any correct implementation without encoding the wrong value. The buildTriggerTransaction implementation is correct per spec (uses tx.pure.u64(currentPrice) directly). All other aspects of T-006 pass (SplitCoins+MoveCall structure, target, typeArguments, vault/pool/clock args, split coin shape). Implementation notes: raw-fetch JSON-RPC pattern (Cycle 1 proven); Pyth BCS built via bcs.TransactionKind.serialize() to avoid SuiJsonRpcClient.devInspectTransactionBlock which requires getNormalizedMoveFunction mock support; vault discovery via suix_queryEvents with MoveModule filter; AC3.7 satisfied (no @mysten/deepbook-v3 dep); AC3.8 VaultRegistry with addOrUpdate/iterate/seedTriggeredFromChain/markTriggered; AC3.9 config validates pollIntervalMs in [5000,10000]; AC3.10 triggerEvaluator mirrors Move contract logic; AC3.11 logger with 8 event types and secret redaction."
+}

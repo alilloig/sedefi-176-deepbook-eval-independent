@@ -1,0 +1,15 @@
+[
+  {
+    "id": "R6-001",
+    "title": "Vite middleware 404 body discloses absolute home-directory path",
+    "severity": "info",
+    "category": "security",
+    "file": "independent/01-market-stats/vite.config.ts",
+    "line_range": "38-45",
+    "description": "When the manifest file is missing, the dev-server middleware returns a 404 body containing MANIFEST_DISK_PATH verbatim, which is the absolute path under the developer's home directory (e.g. /Users/<username>/workspace/deepbook-sandbox/sandbox/deployments/localnet.json). This leaks the OS username and the developer's filesystem layout to anyone able to GET /localnet.json from the dev server.",
+    "impact": "On a localhost-only dev server this is harmless — the same user already has shell access. If a developer ever exposes the dev server beyond loopback (e.g. via vite --host or a tunneling tool), the 404 body gives a small piece of host fingerprinting. Slot 1 is dev-only and read-only, so the practical impact is negligible.",
+    "recommendation": "Optional: replace the path in the 404 body with a relative pointer (e.g. 'sandbox/deployments/localnet.json') and keep the actionable bootstrap command. No code change is required for this cycle's contract.",
+    "evidence": "error: `localnet.json not found at ${MANIFEST_DISK_PATH}. Run pnpm deploy-all from the deepbook-sandbox repo.`",
+    "confidence": "high"
+  }
+]

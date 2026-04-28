@@ -1,0 +1,19 @@
+[package]
+name = "slippage_swap"
+edition = "2024"
+
+[dependencies]
+# Deepbook dependencies
+token = { local = "/Users/alilloig/workspace/deepbook-sandbox/sandbox/.external-packages/token" }
+deepbook = { local = "/Users/alilloig/workspace/deepbook-sandbox/sandbox/.external-packages/deepbook" }
+# deepbook_margin excluded: its bundled test sources reference
+# pyth::price_info::new_price_info_object_for_test which does not exist in
+# the bundled pyth package, causing a build-time unbound-member error.
+# The slippage_swap wrapper does not use deepbook_margin at all.
+
+# Pyth and USDC dependencies
+pyth = { local = "/Users/alilloig/workspace/deepbook-sandbox/sandbox/packages/pyth" }
+usdc = { local = "/Users/alilloig/workspace/deepbook-sandbox/sandbox/packages/usdc" }
+
+[environments]
+localnet = "a62c4e17"
