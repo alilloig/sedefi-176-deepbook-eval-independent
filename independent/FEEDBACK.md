@@ -12,6 +12,28 @@ The three sections required by the Linear ticket are §1 (working well), §2 (ca
 
 ---
 
+## TL;DR
+
+**Bottom line.** The sandbox is *architecturally* the right primitive — `pnpm deploy-all` bringing up the whole DeepBook stack in one command is high-leverage. But two bugs in the bootstrap mean a fresh `pnpm deploy-all` does not produce a usable sandbox without manual workarounds, and the SDK + docs have enough gaps to cost meaningful iteration time on a first build. DeepBook v3 *itself* (Move side) is solid; the friction lives at the indexer / sandbox-orchestration / SDK / docs layers around it.
+
+**Five highest-impact findings** (full detail in §3):
+
+1. **Indexer's `pools` postgres table is never populated by `pnpm deploy-all`** — every pool-keyed REST route (`/get_pools`, `/orderbook/<name>`, `/trades/<name>`, `/ticker`) returns empty out of the box on a fresh sandbox. Forced Slot 1 to abandon its planned indexer integration and rebuild as chain-direct reads, ~10× scope expansion. **30-50 LOC fix in `scripts/utils/pool.ts`**.
+
+2. **`pnpm deploy-all` doesn't `docker compose down -v` first** — postgres state survives across runs and the indexer cursor desyncs from the regenerated chain. Result: pool-creation events land in the indexer's permanent blind spot. The script reports success either way.
+
+3. **DeepBook v3 `order_id` encoding is undocumented and the bundled `chain-shape.md` prose is actively wrong** about bid inversion. Slot 1 took 4 cycle iterations (bid-only, ask-broken, structurally-fixed-but-not-wired) to land an empirically-correct decoder. **A `decodeOrderId(orderId)` helper in `@mysten/deepbook-v3` would prevent this entirely.**
+
+4. **Pyth `:9010` is a status endpoint, not a price feed** (the brief and natural design assumption was the opposite). Keepers must `sui_getObject` + hand-decode the on-chain `PriceInfoObject` BCS — and the BCS layout is undocumented anywhere.
+
+5. **`@mysten/deepbook-v3` SDK was deliberately not used by any of the three apps**, even though they're all DeepBook integrations. Slot 1 dropped it (the indexer surface it wraps is broken — finding 1); Slot 3 dropped it (it wraps the wrong layer for the keeper-via-Move-wrapper pattern). That's a real product signal — across three natural use cases, the SDK didn't fit any.
+
+**What works.** The Move-side surface is genuinely clean: `swap_exact_base_for_quote` (no-manager path) is a one-call composition primitive, the resource model + atomicity made Slot 3's vault straightforward (~160 LOC Move), and `deepbook::pool_tests::setup_everything` is a reusable test fixture that absorbs ~100 LOC per test file. sui-pilot's bundled docs (`.ts-sdk-docs/`, `.move-book-docs/`) repeatedly caught stale-training-memory pitfalls and were load-bearing for SDK 2.0 migration correctness.
+
+**Net recommendation.** Fix findings 1 and 2 (the sandbox bootstrap bugs) and finding 3 (the order_id helper + corrected decoding doc) before the next external evaluator touches this — those three fixes together would have removed roughly half the iteration cost of this run.
+
+---
+
 ## 1. What is working well
 
 - **Move 2024 + DeepBook v3 no-manager swap is genuinely clean** (`raw-friction.log` 2026-04-27T23:55:00Z, `[deepbook]`). `deepbook::pool::swap_exact_base_for_quote` (no-manager path, lines 248-266 of `pool.move`) takes `(pool, base_in, deep_in, min_quote_out, clock, ctx)` and returns the three output coins as a tuple. Slot 2's wrapper module is 54 source LOC including doc comments — the DeepBook surface required no plumbing object, no BalanceManager, no PTB orchestration, just a function call wrapped in an `assert!`. Setting `min_quote_out = 0` on the inner call to delegate slippage assertion to the wrapper is a clean composition primitive: it lets the wrapper own the abort code without DeepBook fighting it. This is the platonic ideal of a Sui Move dependency.
