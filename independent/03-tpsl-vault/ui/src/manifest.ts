@@ -15,23 +15,29 @@ export interface ManifestData {
 
 interface LocalnetJson {
   network?: { rpcUrl?: string };
-  pools?: Array<{
-    poolId: string;
-    baseCoinType: string;
-    quoteCoinType: string;
-    label?: string;
-  }>;
+  // Sandbox emits pools as a Record keyed by symbol (DEEP_SUI, SUI_USDC),
+  // not as an Array. Verified against
+  // /Users/alilloig/workspace/deepbook-sandbox/sandbox/deployments/localnet.json.
+  pools?: Record<
+    string,
+    {
+      poolId: string;
+      baseCoinType: string;
+      quoteCoinType: string;
+      label?: string;
+    }
+  >;
   packages?: {
     deepbook?: { packageId?: string };
     token?: { packageId?: string };
   };
 }
 
-const TPSL_VAULT_PACKAGE_ID =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as { env?: Record<string, string> }).env
-      ?.VITE_TPSL_VAULT_PACKAGE_ID) ??
-  "";
+const TPSL_VAULT_PACKAGE_ID: string =
+  typeof import.meta !== "undefined"
+    ? (import.meta as { env?: Record<string, string> }).env
+        ?.VITE_TPSL_VAULT_PACKAGE_ID ?? ""
+    : "";
 
 async function fetchManifest(): Promise<ManifestData> {
   const res = await fetch("/localnet.json");
@@ -47,12 +53,14 @@ async function fetchManifest(): Promise<ManifestData> {
   }
   const json = (await res.json()) as LocalnetJson;
   const rpcUrl = json.network?.rpcUrl ?? "http://127.0.0.1:9000";
-  const pools: Pool[] = (json.pools ?? []).map((p) => ({
-    poolId: p.poolId,
-    baseCoinType: p.baseCoinType,
-    quoteCoinType: p.quoteCoinType,
-    label: p.label,
-  }));
+  const pools: Pool[] = Object.entries(json.pools ?? {}).map(
+    ([symbol, p]) => ({
+      poolId: p.poolId,
+      baseCoinType: p.baseCoinType,
+      quoteCoinType: p.quoteCoinType,
+      label: p.label ?? symbol,
+    }),
+  );
   return {
     rpcUrl,
     pools,

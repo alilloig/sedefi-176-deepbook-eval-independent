@@ -101,7 +101,11 @@ function vaultObjectFunded(vaultId: string, balance: string, triggered: boolean)
         hasPublicTransfer: false,
         fields: {
           id: { id: vaultId },
-          balance,
+          // Move's `Balance<T>` BCS-serializes to `{ value: u64 }`; in
+          // sui_getObject's content.fields it lands as
+          // `{ fields: { value: "<atomic>" } }`. Earlier fixtures used a
+          // bare string, mirroring the production bug.
+          balance: { fields: { value: balance } },
           triggered,
           owner: ADDRESS_A,
           pool_id: POOL_ID,

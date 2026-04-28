@@ -61,9 +61,16 @@ export function CreateVaultForm({ refresh }: CreateVaultFormProps) {
       return;
     }
 
-    // Validate amount.
-    const amountNum = parseInt(amount, 10);
-    if (!amount.trim() || isNaN(amountNum) || amountNum <= 0) {
+    // Validate amount. Use BigInt for u64 atomic units — parseInt + Number
+    // capped at 2^53, silently quantizing whole-coin amounts above ~9e15.
+    let amountBig: bigint;
+    try {
+      amountBig = BigInt(amount.trim());
+    } catch {
+      setValidationError("Amount must be a positive integer.");
+      return;
+    }
+    if (!amount.trim() || amountBig <= 0n) {
       setValidationError("Amount must be a positive integer.");
       return;
     }
@@ -102,7 +109,7 @@ export function CreateVaultForm({ refresh }: CreateVaultFormProps) {
 
       if (selectedPool.baseCoinType === SUI_COIN_TYPE) {
         // Split from gas for SUI.
-        const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amountNum)]);
+        const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amountBig)]);
         coinArg = coin;
       } else {
         // Locate a funded Coin<Base> for non-SUI coins.
@@ -113,15 +120,15 @@ export function CreateVaultForm({ refresh }: CreateVaultFormProps) {
           coinType: selectedPool.baseCoinType,
         });
         const funded = coinsResult.data.find(
-          (c) => BigInt(c.balance) >= BigInt(amountNum),
+          (c) => BigInt(c.balance) >= amountBig,
         );
         if (!funded) {
           throw new Error(
-            `No Coin<${selectedPool.baseCoinType}> of size ${amountNum} available — fund from sandbox faucet.`,
+            `No Coin<${selectedPool.baseCoinType}> of size ${amountBig} available — fund from sandbox faucet.`,
           );
         }
         const [coin] = tx.splitCoins(tx.object(funded.coinObjectId), [
-          tx.pure.u64(amountNum),
+          tx.pure.u64(amountBig),
         ]);
         coinArg = coin;
       }

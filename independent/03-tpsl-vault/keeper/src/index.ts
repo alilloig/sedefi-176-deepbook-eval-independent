@@ -448,11 +448,16 @@ async function main(): Promise<void> {
   const cursorRef = { cursor: null as string | null };
 
   // Build submitter for production trigger submission.
+  // R3-001/R5-006: keypair.sign(bytes) returns a raw 64-byte ed25519 signature
+  // over the input. executeTransactionBlock requires a signature over
+  // blake2b(intent || txBytes), serialized as [scheme_flag, sig, pubkey] base64.
+  // signTransaction() applies the TransactionData intent and returns the
+  // already-serialized base64 form.
   const submitter: TriggerSubmitter = {
     signer: {
       sign: async (bytes: Uint8Array) => {
-        const sig = await keypair.sign(bytes);
-        return Buffer.from(sig).toString('base64');
+        const { signature } = await keypair.signTransaction(bytes);
+        return signature;
       },
       address: keeperAddress,
       publicKeyBase64: keypair.getPublicKey().toBase64(),
@@ -462,9 +467,11 @@ async function main(): Promise<void> {
     deepPerTrigger: config.deepPerTrigger,
   };
 
-  // Seed triggered flags for known vaults via on-chain read.
-  // Runs after the first discovery tick in the main loop below.
-  let firstTickDone = false;
+  // Track which vaults we have already seeded `triggered` from chain so we
+  // don't re-fetch on every tick. R4-002: vaults discovered AFTER the first
+  // tick must also be seeded — otherwise a restart after their discovery
+  // re-fires and burns gas on EVaultTriggered=1002 aborts.
+  const seededVaults = new Set<string>();
 
   // Helper to do a getObject call for seeding.
   const getObjectForSeed = async (id: string) => {
@@ -515,11 +522,12 @@ async function main(): Promise<void> {
         submitter,
       });
 
-      // After the first tick, seed triggered flags from chain for all known vaults.
-      // This prevents retry-after-fire when the keeper restarts.
-      if (!firstTickDone) {
-        firstTickDone = true;
-        for (const vault of registry.iterate()) {
+      // Seed `triggered` from chain for any vault we haven't seeded yet,
+      // including ones discovered in this tick. Prevents re-firing after
+      // restart for late-discovered vaults (R4-002).
+      for (const vault of registry.iterate()) {
+        if (!seededVaults.has(vault.vault_id)) {
+          seededVaults.add(vault.vault_id);
           await registry.seedTriggeredFromChain(vault.vault_id, getObjectForSeed);
         }
       }

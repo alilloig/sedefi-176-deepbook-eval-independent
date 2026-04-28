@@ -19,27 +19,31 @@ const MANIFEST_DISK_PATH = path.join(
   'localnet.json',
 );
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    configureServer(server) {
-      server.middlewares.use('/localnet.json', async (_req, res) => {
-        try {
-          const content = await fs.readFile(MANIFEST_DISK_PATH, 'utf8');
-          res.setHeader('content-type', 'application/json');
-          res.statusCode = 200;
-          res.end(content);
-        } catch {
-          const msg = JSON.stringify({
-            error: `localnet.json not found at ${MANIFEST_DISK_PATH}. Run pnpm deploy-all from the deepbook-sandbox repo.`,
-          });
-          res.setHeader('content-type', 'application/json');
-          res.statusCode = 404;
-          res.end(msg);
-        }
-      });
-    },
+// configureServer is a Vite Plugin hook, NOT a `server: ServerOptions` field.
+// Placing it under `server: {}` causes Vite to silently drop the middleware.
+const manifestMiddlewarePlugin = {
+  name: 'manifest-middleware',
+  configureServer(server: { middlewares: { use: (path: string, fn: (req: unknown, res: { setHeader: (k: string, v: string) => void; statusCode: number; end: (s: string) => void }) => void) => void } }) {
+    server.middlewares.use('/localnet.json', async (_req, res) => {
+      try {
+        const content = await fs.readFile(MANIFEST_DISK_PATH, 'utf8');
+        res.setHeader('content-type', 'application/json');
+        res.statusCode = 200;
+        res.end(content);
+      } catch {
+        const msg = JSON.stringify({
+          error: `localnet.json not found at ${MANIFEST_DISK_PATH}. Run pnpm deploy-all from the deepbook-sandbox repo.`,
+        });
+        res.setHeader('content-type', 'application/json');
+        res.statusCode = 404;
+        res.end(msg);
+      }
+    });
   },
+};
+
+export default defineConfig({
+  plugins: [react(), manifestMiddlewarePlugin],
   test: {
     environment: 'jsdom',
     globals: true,

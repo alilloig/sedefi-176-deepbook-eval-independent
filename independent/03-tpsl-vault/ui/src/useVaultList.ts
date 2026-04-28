@@ -193,7 +193,14 @@ export function useVaultList(): {
           }
 
           const fields = content.fields;
-          const balance = String(fields["balance"] ?? "0");
+          // Move's `Balance<T>` BCS-serializes as `{ value: u64 }`. In
+          // sui_getObject's content.fields it arrives as
+          // `{ fields: { value: "<atomic>" } }`. String(fields.balance) was
+          // `[object Object]`, so the post-withdraw filter never fired.
+          const balanceFields = (fields["balance"] as
+            | { fields?: { value?: string | number | bigint } }
+            | undefined)?.fields;
+          const balance = String(balanceFields?.value ?? "0");
           const triggered = Boolean(fields["triggered"]);
 
           // Post-withdraw filter: balance==0 && !triggered → omit.
